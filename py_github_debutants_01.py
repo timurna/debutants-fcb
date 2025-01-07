@@ -105,12 +105,16 @@ def reset_run():
 def run_callback():
     st.session_state['run_clicked'] = True
 
-# Highlight Current Market Value if it's higher than Value at Debut
-def highlight_mv(df):
+# Highlight the displayed "Current Market Value" cell if higher than "Value at Debut".
+def highlight_cmv(df):
+    """df is the styled DataFrame in wide form. We'll highlight
+       the 'Current Market Value' column if CMV > VAD.
+       The numeric columns are 'CMV Numeric' and 'VAD Numeric'."""
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-    if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
-        mask = df['Current Market Value'] > df['Value at Debut']
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # light green
+    if 'CMV Numeric' in df.columns and 'VAD Numeric' in df.columns:
+        mask = df['CMV Numeric'] > df['VAD Numeric']
+        # Color the cell in the final 'Current Market Value' column
+        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'
     return styles
 
 if not st.session_state['authenticated']:
@@ -164,10 +168,10 @@ else:
             with col3:
                 if 'Debut Year' in data.columns:
                     all_years = sorted(data['Debut Year'].dropna().unique())
-                    year_options = ["All"] + [str(yr) for yr in all_years]  # convert to string for consistency
+                    year_options = ["All"] + [str(yr) for yr in all_years]
                     selected_years = st.multiselect("Select Debut Year",
                                                     year_options,
-                                                    default=[])  # no preselection
+                                                    default=[])
                 else:
                     st.warning("No 'Debut Year' column in data.")
                     selected_years = []
@@ -215,7 +219,6 @@ else:
 
             # 3) Debut Year filter
             if selected_years and "All" not in selected_years:
-                # Convert strings back to int
                 valid_years = [int(y) for y in selected_years if y.isdigit()]
                 filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
@@ -234,7 +237,7 @@ else:
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Display columns
+            # Columns to display
             display_columns = [
                 'Competition',
                 'Player Name',
@@ -254,40 +257,70 @@ else:
             ]
             display_columns = [c for c in display_columns if c in filtered_data.columns]
 
-            # Headline
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
+            # Make a copy so we don't modify original
             final_df = filtered_data[display_columns].reset_index(drop=True)
 
-            # 1) We apply the highlight function
-            styled_table = final_df.style.apply(highlight_mv, axis=None)
+            # -------------------------------------------------------
+            # 1) Keep numeric versions for highlighting & calculations
+            #    We'll store them in hidden columns: 'VAD Numeric' and 'CMV Numeric'.
+            # -------------------------------------------------------
+            final_df['VAD Numeric'] = final_df['Value at Debut']
+            final_df['CMV Numeric'] = final_df['Current Market Value']
 
-            # 2) Then format the numeric columns for money
-            #    We'll do comma-separated, no decimals, and a leading "€"
-            def money_format(x):
-                if pd.isna(x):
+            # 2) Calculate percentage change
+            #    (CMV - VAD)/VAD * 100, only where VAD != 0
+            final_df['PctChange'] = None
+            mask_vad_nonzero = final_df['VAD Numeric'] != 0
+            final_df.loc[mask_vad_nonzero, 'PctChange'] = (
+                (final_df.loc[mask_vad_nonzero, 'CMV Numeric']
+                 - final_df.loc[mask_vad_nonzero, 'VAD Numeric'])
+                / final_df.loc[mask_vad_nonzero, 'VAD Numeric']
+                * 100
+            )
+
+            # 3) Build display string for "Value at Debut"
+            def format_vad(x):
+                if pd.isna(x) or x <= 0:
                     return "€0"
                 return f"€{x:,.0f}"
 
-            styled_table = styled_table.format(
-                subset=["Value at Debut", "Current Market Value"],
-                formatter=money_format
-            )
+            final_df['Value at Debut'] = final_df['VAD Numeric'].apply(format_vad)
 
-            # Show the styled DataFrame
-            st.dataframe(styled_table, use_container_width=True)
+            # 4) Build display string for "Current Market Value" with % in parentheses
+            def format_cmv(row):
+                cmv = row['CMV Numeric']
+                if pd.isna(cmv) or cmv <= 0:
+                    val_str = "€0"
+                else:
+                    val_str = f"€{cmv:,.0f}"
 
-            # Download button
+                pct = row['PctChange']
+                if pd.isna(pct) or row['VAD Numeric'] == 0:
+                    return val_str
+                sign = "+" if pct > 0 else ""
+                return f"{val_str} ({sign}{pct:.1f}%)"
+
+            final_df['Current Market Value'] = final_df.apply(format_cmv, axis=1)
+
+            # 5) Create the Styler to highlight if CMV > VAD
+            #    We still rely on 'CMV Numeric' and 'VAD Numeric' for the comparison
+            styler = final_df.style.apply(highlight_cmv, axis=None)
+
+            # 6) Hide the numeric columns from display
+            styler.hide_columns(["VAD Numeric", "CMV Numeric", "PctChange"])
+
+            # 7) Show the styled DataFrame
+            st.dataframe(styler, use_container_width=True)
+
+            # 8) Download button
             if not final_df.empty:
-                # For the Excel file, let's keep numeric columns numeric:
-                # We'll do a copy that doesn't have the styling for the file
-                download_df = final_df.copy()
-                
-                # If you want to keep them numeric, do nothing.
-                # If you want to keep them as text with "€", then convert them:
-                # But typically you'd keep them numeric so they can be manipulated.
-                
+                # For Excel, we might want the numeric columns to remain numeric.
+                # We'll create a copy that has only the visible columns in text form.
+                download_df = final_df.drop(columns=["VAD Numeric", "CMV Numeric", "PctChange"], errors="ignore")
+
                 tmp_path = '/tmp/filtered_data.xlsx'
                 download_df.to_excel(tmp_path, index=False)
 
