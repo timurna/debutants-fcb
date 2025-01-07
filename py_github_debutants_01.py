@@ -39,7 +39,6 @@ def login():
 
     st.button("Login", on_click=authenticate_and_login)
 
-# Download and load data
 @st.cache_data
 def download_and_load_data(file_url, data_version):
     """Download the Excel file from Google Drive and load it into a DataFrame."""
@@ -73,22 +72,29 @@ def download_and_load_data(file_url, data_version):
                 'goals': 'Goals',
                 'minutes_played': 'Minutes Played',
                 'debut_type': 'Debut Type',
+                # NEW: Make sure we have 'opponent' column
+                'opponent': 'Opponent',
             },
             inplace=True
         )
-        # Convert Debut Date to a proper datetime
+
+        # Convert Debut Date to datetime
         data['Debut Date'] = pd.to_datetime(data['Debut Date'], errors='coerce')
 
-        # Create a Debut Year column
+        # Create Debut Year column
         if 'Debut Date' in data.columns:
             data['Debut Year'] = data['Debut Date'].dt.year
 
-        # 1) Rename "Bundesliga" to "1. Bundesliga" if Country is Germany
-        #    (to differentiate from Austria's Bundesliga)
+        # Rename "Bundesliga" to "1. Bundesliga" if country is Germany
         data.loc[
             (data['Competition'] == 'Bundesliga') & (data['Country'] == 'Germany'),
             'Competition'
         ] = '1. Bundesliga'
+
+        # CREATE a column for (Competition + Country) to show in the filter
+        # e.g. "1. Bundesliga (Germany)"
+        data['CompCountryID'] = data['Competition'] + "||" + data['Country'].fillna('')
+        data['Competition (Country)'] = data['Competition'] + " (" + data['Country'].fillna('') + ")"
 
         return data
     except Exception as e:
@@ -100,6 +106,16 @@ def reset_run():
 
 def run_callback():
     st.session_state['run_clicked'] = True
+
+# Function to highlight Current Market Value cells if higher than Value at Debut
+def highlight_mv(df):
+    # Create a style DataFrame filled with ''
+    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+    # We only highlight if both Value at Debut and Current Market Value exist
+    if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
+        mask = df['Current Market Value'] > df['Value at Debut']
+        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # light green
+    return styles
 
 # -----------------------------
 # Main App Logic
@@ -126,23 +142,23 @@ else:
     else:
         st.write("Data successfully loaded!")
 
-        # Build Filters in a Single Row + one more for minutes
+        # Build Filters in a Single Row
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
+            # 1) "Competition (Country)" filter
             with col1:
-                # Competition filter
-                if 'Competition' in data.columns:
-                    all_competitions = sorted(data['Competition'].dropna().unique())
-                    competition = st.multiselect("Select Competition",
-                                                 all_competitions,
-                                                 default=all_competitions)
+                if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
+                    all_competitions = sorted(data['Competition (Country)'].dropna().unique())
+                    selected_comp = st.multiselect("Select Competition",
+                                                   all_competitions,
+                                                   default=all_competitions)
                 else:
-                    st.warning("No 'Competition' column in data.")
-                    competition = []
+                    st.warning("No Competition/Country columns in data.")
+                    selected_comp = []
 
+            # 2) Debut Month filter
             with col2:
-                # Debut Month filter
                 if 'Debut Month' in data.columns:
                     all_months = sorted(data['Debut Month'].dropna().unique())
                     debut_month = st.multiselect("Select Debut Month",
@@ -152,8 +168,8 @@ else:
                     st.warning("No 'Debut Month' column in data.")
                     debut_month = []
 
+            # 3) Debut Year filter
             with col3:
-                # Debut Year filter
                 if 'Debut Year' in data.columns:
                     all_years = sorted(data['Debut Year'].dropna().unique())
                     debut_year = st.multiselect("Select Debut Year",
@@ -163,8 +179,8 @@ else:
                     st.warning("No 'Debut Year' column in data.")
                     debut_year = []
 
+            # 4) Age range filter
             with col4:
-                # Age range filter
                 if 'Age at Debut' in data.columns:
                     min_age = int(data['Age at Debut'].min())
                     max_age = int(data['Age at Debut'].max())
@@ -175,8 +191,8 @@ else:
                     st.warning("No 'Age at Debut' column in data.")
                     age_range = (0, 100)
 
+            # 5) Minimum minutes played filter
             with col5:
-                # Minimum minutes played filter
                 if 'Minutes Played' in data.columns:
                     max_minutes = int(data['Minutes Played'].max())
                     min_minutes = st.slider("Minimum Minutes Played",
@@ -189,12 +205,19 @@ else:
         st.button("Run", on_click=run_callback)
 
         if st.session_state['run_clicked']:
-            # Filter the data
+            # Start filtering
             filtered_data = data.copy()
 
-            # Competition filter
-            if 'Competition' in filtered_data.columns and competition:
-                filtered_data = filtered_data[filtered_data['Competition'].isin(competition)]
+            # Competition + Country filter
+            # Convert "Something (Country)" to "Something||Country"
+            if selected_comp:
+                # Convert user selection to IDs
+                selected_ids = [
+                    item.replace(" (", "||").replace(")", "")
+                    for item in selected_comp
+                ]
+                # Filter by matching 'CompCountryID'
+                filtered_data = filtered_data[filtered_data['CompCountryID'].isin(selected_ids)]
 
             # Debut Month filter
             if 'Debut Month' in filtered_data.columns and debut_month:
@@ -215,21 +238,24 @@ else:
             if 'Minutes Played' in filtered_data.columns:
                 filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
-            # 2) Format Debut Date -> DD.MM.YYYY just before displaying
+            # Format Debut Date -> DD.MM.YYYY
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Choose which columns we want to display
+            # ---------------------------------------------------
+            # 1) Which columns to show in the final table?
+            #
+            # - We do NOT show: Second Nationality, Debut Month, Country
+            # - We DO show Opponent (after Debut Club)
+            # ---------------------------------------------------
             display_columns = [
                 'Competition',
-                'Country',
                 'Player Name',
                 'Position',
                 'Nationality',
-                'Second Nationality',
                 'Debut Club',
+                'Opponent',          # Insert Opponent right next to Debut Club
                 'Debut Date',
-                'Debut Month',
                 'Age at Debut',
                 'Goals For',
                 'Goals Against',
@@ -237,24 +263,28 @@ else:
                 'Goals',
                 'Minutes Played',
                 'Value at Debut',
-                'Current Market Value'
+                'Current Market Value',
             ]
+
             # Only keep columns that actually exist
             display_columns = [c for c in display_columns if c in filtered_data.columns]
 
-            # 3) Updated Headline
+            # Headline
             st.title("Debütanten")
-
-            # 4) Updated row count display
+            # Row count display (in German)
             st.write(f"{len(filtered_data)} Debütanten")
 
-            # Show the table
-            st.dataframe(filtered_data[display_columns].reset_index(drop=True))
+            # 2) Create a styled table to highlight Current Market Value if higher
+            final_df = filtered_data[display_columns].reset_index(drop=True)
+            styled_table = final_df.style.apply(highlight_mv, axis=None)
+
+            # Show the styled DataFrame
+            st.dataframe(styled_table, use_container_width=True)
 
             # Download button
-            if not filtered_data.empty:
+            if not final_df.empty:
                 tmp_path = '/tmp/filtered_data.xlsx'
-                filtered_data[display_columns].to_excel(tmp_path, index=False)
+                final_df.to_excel(tmp_path, index=False)
 
                 with open(tmp_path, 'rb') as f:
                     st.download_button(
