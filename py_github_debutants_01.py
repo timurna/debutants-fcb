@@ -107,10 +107,14 @@ def run_callback():
 
 # Highlight Current Market Value if it's higher than Value at Debut
 def highlight_mv(df):
+    # Create an empty style instruction DataFrame matching df
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
+    
+    # Only try to highlight if BOTH columns exist
     if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
         mask = df['Current Market Value'] > df['Value at Debut']
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # light green
+        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # Light green
+    
     return styles
 
 if not st.session_state['authenticated']:
