@@ -70,18 +70,18 @@ def download_and_load_data(file_url, data_version):
             inplace=True
         )
 
-        # Date and year
+        # Date conversion
         data['Debut Date'] = pd.to_datetime(data['Debut Date'], errors='coerce')
         if 'Debut Date' in data.columns:
             data['Debut Year'] = data['Debut Date'].dt.year
 
-        # Rename Bundesliga for Germany
+        # Rename "Bundesliga" to "1. Bundesliga" if country is Germany
         data.loc[
             (data['Competition'] == 'Bundesliga') & (data['Country'] == 'Germany'),
             'Competition'
         ] = '1. Bundesliga'
 
-        # Display string for filter
+        # For filter display
         data['CompCountryID'] = data['Competition'] + "||" + data['Country'].fillna('')
         data['Competition (Country)'] = data['Competition'] + " (" + data['Country'].fillna('') + ")"
 
@@ -96,25 +96,13 @@ def reset_run():
 def run_callback():
     st.session_state['run_clicked'] = True
 
-# Highlight function (row-based).
-# We look up numeric values from the dictionaries we built to decide whether to color the cell.
-def highlight_cmv(row, vad_map, cmv_map):
-    # row is the final displayed row (without numeric columns).
-    # row.name gives us the DataFrame index, which we can use to look up numeric values.
-    index = row.name
-
-    val_debut = vad_map.get(index, 0.0)
-    val_current = cmv_map.get(index, 0.0)
-
-    # By default, no styling
+def highlight_cmv(row, vad_col, cmv_col):
+    """Row-based highlight function.
+    If CMV > VAD, we color the 'Current Market Value' cell."""
     styles = [''] * len(row)
-
-    # If CMV is greater than VAD, highlight the Current Market Value cell
-    if val_current > val_debut:
-        # Find the column index for "Current Market Value"
-        if 'Current Market Value' in row.index:
-            cmv_idx = row.index.get_loc('Current Market Value')
-            styles[cmv_idx] = 'background-color: #c6f6d5'
+    if row[cmv_col] > row[vad_col]:
+        idx = row.index.get_loc(cmv_col)
+        styles[idx] = 'background-color: #c6f6d5'  # Light green
     return styles
 
 if not st.session_state['authenticated']:
@@ -136,7 +124,7 @@ else:
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
-            # 1) Competition
+            # Competition
             if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                 all_comps = sorted(data['Competition (Country)'].dropna().unique())
                 comp_options = ["All"] + all_comps
@@ -145,7 +133,7 @@ else:
                 col1.warning("No Competition/Country columns in data.")
                 selected_comp = []
 
-            # 2) Debut Month
+            # Debut Month
             if 'Debut Month' in data.columns:
                 all_months = sorted(data['Debut Month'].dropna().unique())
                 month_options = ["All"] + all_months
@@ -154,7 +142,7 @@ else:
                 col2.warning("No 'Debut Month' column in data.")
                 debut_month = []
 
-            # 3) Debut Year
+            # Debut Year
             if 'Debut Year' in data.columns:
                 all_years = sorted(data['Debut Year'].dropna().unique())
                 year_options = ["All"] + [str(yr) for yr in all_years]
@@ -163,7 +151,7 @@ else:
                 col3.warning("No 'Debut Year' column in data.")
                 selected_years = []
 
-            # 4) Age range
+            # Age range
             if 'Age at Debut' in data.columns:
                 min_age = int(data['Age at Debut'].min())
                 max_age = int(data['Age at Debut'].max())
@@ -172,7 +160,7 @@ else:
                 col4.warning("No 'Age at Debut' column in data.")
                 age_range = (0, 100)
 
-            # 5) Minutes played
+            # Minutes
             if 'Minutes Played' in data.columns:
                 max_minutes = int(data['Minutes Played'].max())
                 min_minutes = col5.slider("Minimum Minutes Played", 0, max_minutes, 0)
@@ -210,11 +198,11 @@ else:
             if 'Minutes Played' in filtered_data.columns:
                 filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
-            # Format debut date
+            # Format Debut Date
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Final display columns
+            # Columns to display
             display_columns = [
                 'Competition',
                 'Player Name',
@@ -237,62 +225,52 @@ else:
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
-            # Make a copy for display
             final_df = filtered_data[display_columns].reset_index(drop=True)
 
-            # Build dictionaries for numeric lookups
-            # (So we can highlight "Current Market Value" if it's higher than "Value at Debut")
-            vad_map = filtered_data['Value at Debut'].to_dict()
-            cmv_map = filtered_data['Current Market Value'].to_dict()
+            # Calculate percentage changes in a separate column
+            # (CMV - VAD)/VAD * 100
+            final_df["% Change"] = None
+            mask_vad_nonzero = (final_df["Value at Debut"] != 0) & (~final_df["Value at Debut"].isna())
+            final_df.loc[mask_vad_nonzero, "% Change"] = (
+                (final_df.loc[mask_vad_nonzero, "Current Market Value"]
+                 - final_df.loc[mask_vad_nonzero, "Value at Debut"])
+                / final_df.loc[mask_vad_nonzero, "Value at Debut"]
+                * 100
+            )
 
-            # Calculate % change and build display strings
-            def format_value(x):
-                # Displays large integers as e.g. €2,500,000
-                if pd.isna(x) or x <= 0:
+            # Place "% Change" column right after "Current Market Value"
+            if "% Change" in final_df.columns:
+                cols_order = []
+                for col in final_df.columns:
+                    cols_order.append(col)
+                    if col == "Current Market Value":
+                        cols_order.append("% Change")
+                final_df = final_df[cols_order]
+
+            # Create a row-based Styler
+            def row_styler(row):
+                return highlight_cmv(row, "Value at Debut", "Current Market Value")
+
+            styler = final_df.style.apply(row_styler, axis=1)
+
+            # Format money
+            def money_format(val):
+                if pd.isna(val) or val <= 0:
                     return "€0"
-                return f"€{x:,.0f}"
+                return f"€{val:,.0f}"
 
-            # We'll create a list for the final display of "Current Market Value"
-            cmv_display = []
-            for idx, row in final_df.iterrows():
-                # idx is the row index in final_df, but we need the same index as in original filtered_data
-                # We can do something like if we kept the old index: row['index']? 
-                # But we did reset_index(drop=True) so they match in order. 
-                # We'll rely on that matching to do lookups in the dictionaries.
-                vad = vad_map.get(idx, 0.0)
-                cmv = cmv_map.get(idx, 0.0)
+            # Format all money columns
+            styler = styler.format(
+                subset=["Value at Debut", "Current Market Value"],
+                formatter=money_format
+            )
 
-                cmv_str = format_value(cmv)
-
-                # If there's no valid Value at Debut or it's zero, skip
-                if vad > 0:
-                    pct = (cmv - vad) / vad * 100 if vad else 0
-                    if not pd.isna(pct) and vad != 0:
-                        sign = "+" if pct > 0 else ""
-                        cmv_str = f"{cmv_str} ({sign}{pct:.1f}%)"
-
-                cmv_display.append(cmv_str)
-
-            # Overwrite the final_df's columns for consistent display
-            # Format 'Value at Debut'
-            final_df['Value at Debut'] = final_df['Value at Debut'].apply(lambda x: format_value(x) if not pd.isna(x) else '€0')
-            # Format 'Current Market Value' (with %)
-            final_df['Current Market Value'] = cmv_display
-
-            # Styler with row-based highlighting
-            def highlight_row(row):
-                # row.name is the final_df index
-                idx = row.name
-                val_debut = vad_map.get(idx, 0.0)
-                val_current = cmv_map.get(idx, 0.0)
-                styles = [''] * len(row)
-                # If CMV is higher, highlight the "Current Market Value" cell
-                if val_current > val_debut:
-                    cmv_idx = row.index.get_loc('Current Market Value')
-                    styles[cmv_idx] = 'background-color: #c6f6d5'
-                return styles
-
-            styler = final_df.style.apply(highlight_row, axis=1)
+            # Format the % Change column
+            if "% Change" in final_df.columns:
+                styler = styler.format(
+                    subset=["% Change"],
+                    formatter=lambda x: f"{x:+.1f}%"
+                )
 
             st.dataframe(styler, use_container_width=True)
 
