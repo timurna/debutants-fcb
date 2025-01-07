@@ -14,7 +14,7 @@ if 'authenticated' not in st.session_state:
 if 'run_clicked' not in st.session_state:
     st.session_state['run_clicked'] = False
 
-# Authentication helper
+# --- Authentication helper ---
 def authenticate(username, password):
     try:
         stored_username = st.secrets["credentials"]["username"]
@@ -39,6 +39,7 @@ def login():
 
     st.button("Login", on_click=authenticate_and_login)
 
+# --- Data download and load ---
 @st.cache_data
 def download_and_load_data(file_url, data_version):
     """Download the Excel file from Google Drive and load it into a DataFrame."""
@@ -99,20 +100,52 @@ def download_and_load_data(file_url, data_version):
         st.error(f"Error reading Excel file: {e}")
         return None
 
+# --- Utility callbacks ---
 def reset_run():
     st.session_state['run_clicked'] = False
 
 def run_callback():
     st.session_state['run_clicked'] = True
 
-# Highlight Current Market Value if it's higher than Value at Debut
+# --- Highlight function ---
 def highlight_mv(df):
+    """Highlight the 'Current Market Value' cell if the numeric current MV is higher than the numeric debut MV."""
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-    if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
-        mask = df['Current Market Value'] > df['Value at Debut']
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # light green
+    if 'Value at Debut (Numeric)' in df.columns and 'Current Market Value (Numeric)' in df.columns:
+        mask = df['Current Market Value (Numeric)'] > df['Value at Debut (Numeric)']
+        # Apply highlight to the display column named "Current Market Value"
+        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'
     return styles
 
+# --- Format function for Current Market Value + % change ---
+def format_cmv_with_change(row):
+    """Return a string: e.g. '€1,000,000 (+50.0%)' if there's an increase."""
+    debut_val = row.get('Value at Debut (Numeric)')
+    curr_val = row.get('Current Market Value (Numeric)')
+
+    # If current value is NaN, show "€0" or something else
+    if pd.isna(curr_val):
+        return "€0"
+
+    # Base string for the current value
+    base_str = f"€{curr_val:,.0f}"
+
+    # If debut value is missing or zero, can't calculate % change
+    if pd.isna(debut_val) or debut_val == 0:
+        return base_str
+
+    # Calculate percentage change
+    pct_change = (curr_val - debut_val) / debut_val * 100
+
+    # If no change, just show the base number
+    if pct_change == 0:
+        return base_str
+
+    # Otherwise, append sign and one decimal place
+    return f"{base_str} ({pct_change:+.1f}%)"
+
+
+# --- Main app logic ---
 if not st.session_state['authenticated']:
     # Prompt for login
     login()
@@ -132,6 +165,13 @@ else:
     else:
         st.write("Data successfully loaded!")
 
+        # --- Create numeric backup columns for MV calculations ---
+        data['Value at Debut (Numeric)'] = data['Value at Debut']
+        data['Current Market Value (Numeric)'] = data['Current Market Value']
+
+        # --- Build the display version of Current Market Value with percentage ---
+        data['Current Market Value'] = data.apply(format_cmv_with_change, axis=1)
+
         # Prepare filter columns
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
@@ -140,7 +180,7 @@ else:
             with col1:
                 if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                     all_comps = sorted(data['Competition (Country)'].dropna().unique())
-                    comp_options = ["All"] + all_comps
+                    comp_options = ["All"] + list(all_comps)
                     selected_comp = st.multiselect("Select Competition",
                                                    comp_options,
                                                    default=[])  # no preselection
@@ -152,7 +192,7 @@ else:
             with col2:
                 if 'Debut Month' in data.columns:
                     all_months = sorted(data['Debut Month'].dropna().unique())
-                    month_options = ["All"] + all_months
+                    month_options = ["All"] + list(all_months)
                     debut_month = st.multiselect("Select Debut Month",
                                                  month_options,
                                                  default=[])  # no preselection
@@ -164,7 +204,7 @@ else:
             with col3:
                 if 'Debut Year' in data.columns:
                     all_years = sorted(data['Debut Year'].dropna().unique())
-                    year_options = ["All"] + [str(yr) for yr in all_years]  # convert to string for consistency
+                    year_options = ["All"] + [str(yr) for yr in all_years]
                     selected_years = st.multiselect("Select Debut Year",
                                                     year_options,
                                                     default=[])  # no preselection
@@ -202,7 +242,7 @@ else:
 
             # 1) Competition + Country filter
             if selected_comp and "All" not in selected_comp:
-                # Convert user selection: e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
+                # Convert user selection e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
                 selected_ids = [
                     item.replace(" (", "||").replace(")", "")
                     for item in selected_comp
@@ -250,8 +290,9 @@ else:
                 'Goals',
                 'Minutes Played',
                 'Value at Debut',
-                'Current Market Value',
+                'Current Market Value',  # now has the % in parentheses
             ]
+            # Only keep columns that actually exist in our filtered DataFrame
             display_columns = [c for c in display_columns if c in filtered_data.columns]
 
             # Headline
@@ -260,34 +301,34 @@ else:
 
             final_df = filtered_data[display_columns].reset_index(drop=True)
 
-            # 1) We apply the highlight function
+            # We apply the highlight function
             styled_table = final_df.style.apply(highlight_mv, axis=None)
 
-            # 2) Then format the numeric columns for money
-            #    We'll do comma-separated, no decimals, and a leading "€"
+            # Format only "Value at Debut" as money (this is still numeric)
             def money_format(x):
                 if pd.isna(x):
                     return "€0"
                 return f"€{x:,.0f}"
 
             styled_table = styled_table.format(
-                subset=["Value at Debut", "Current Market Value"],
+                subset=["Value at Debut"],
                 formatter=money_format
             )
 
             # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
-            # Download button
+            # --- Download button ---
             if not final_df.empty:
-                # For the Excel file, let's keep numeric columns numeric:
+                # For Excel, let's keep numeric columns numeric:
                 # We'll do a copy that doesn't have the styling for the file
-                download_df = final_df.copy()
+                download_df = filtered_data.copy()
                 
-                # If you want to keep them numeric, do nothing.
-                # If you want to keep them as text with "€", then convert them:
-                # But typically you'd keep them numeric so they can be manipulated.
-                
+                # Replace the date back to actual datetime if needed:
+                # (Because we turned it into a string with dd.mm.yyyy.)
+                # If you want to keep dd.mm.yyyy in the Excel, that's also fine. 
+                # We'll leave it as is for this example.
+
                 tmp_path = '/tmp/filtered_data.xlsx'
                 download_df.to_excel(tmp_path, index=False)
 
