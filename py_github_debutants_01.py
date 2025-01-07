@@ -83,6 +83,13 @@ def download_and_load_data(file_url, data_version):
         if 'Debut Date' in data.columns:
             data['Debut Year'] = data['Debut Date'].dt.year
 
+        # 1) Rename "Bundesliga" to "1. Bundesliga" if Country is Germany
+        #    (to differentiate from Austria's Bundesliga)
+        data.loc[
+            (data['Competition'] == 'Bundesliga') & (data['Country'] == 'Germany'),
+            'Competition'
+        ] = '1. Bundesliga'
+
         return data
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
@@ -103,13 +110,12 @@ if not st.session_state['authenticated']:
 else:
     # Once authenticated, show the main content
 
-    # 1) Show the Logo
-    # Make sure 'logo.png' is in the same directory or update the path
+    # Show the Logo (make sure 'logo.png' exists or update the path)
     st.image('logo.png', use_container_width=True, width=800)
 
     st.write("Welcome! You are logged in.")
 
-    # 2) Download/Load Data
+    # Download/Load Data
     file_url = 'https://drive.google.com/uc?id=15BbDQuW_ZJbIUIV_g7YOjoqrr8k4ZPF_'
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
@@ -120,7 +126,7 @@ else:
     else:
         st.write("Data successfully loaded!")
 
-        # 3) Build Filters in a Single Row + one more for minutes
+        # Build Filters in a Single Row + one more for minutes
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
@@ -172,7 +178,6 @@ else:
             with col5:
                 # Minimum minutes played filter
                 if 'Minutes Played' in data.columns:
-                    # We'll allow from 0 to the max found in the dataset
                     max_minutes = int(data['Minutes Played'].max())
                     min_minutes = st.slider("Minimum Minutes Played",
                                             0, max_minutes, 0)
@@ -180,10 +185,9 @@ else:
                     st.warning("No 'Minutes Played' column in data.")
                     min_minutes = 0
 
-        # 4) Run Button
+        # Run Button
         st.button("Run", on_click=run_callback)
 
-        # 5) Once run is clicked, filter and display
         if st.session_state['run_clicked']:
             # Filter the data
             filtered_data = data.copy()
@@ -211,6 +215,10 @@ else:
             if 'Minutes Played' in filtered_data.columns:
                 filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
+            # 2) Format Debut Date -> DD.MM.YYYY just before displaying
+            if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
+                filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
+
             # Choose which columns we want to display
             display_columns = [
                 'Competition',
@@ -231,17 +239,19 @@ else:
                 'Value at Debut',
                 'Current Market Value'
             ]
-            # Only keep columns that actually exist in filtered_data
+            # Only keep columns that actually exist
             display_columns = [c for c in display_columns if c in filtered_data.columns]
 
-            # Title & row count
-            st.title("Football Debutants Explorer")
-            st.write(f"Showing {len(filtered_data)} debutants based on filters")
+            # 3) Updated Headline
+            st.title("Debütanten")
 
-            # 6) Display the table *only with the chosen columns*
+            # 4) Updated row count display
+            st.write(f"{len(filtered_data)} Debütanten")
+
+            # Show the table
             st.dataframe(filtered_data[display_columns].reset_index(drop=True))
 
-            # 7) Download button
+            # Download button
             if not filtered_data.empty:
                 tmp_path = '/tmp/filtered_data.xlsx'
                 filtered_data[display_columns].to_excel(tmp_path, index=False)
