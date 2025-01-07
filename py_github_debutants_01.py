@@ -107,14 +107,10 @@ def run_callback():
 
 # Highlight Current Market Value if it's higher than Value at Debut
 def highlight_mv(df):
-    # Create an empty style instruction DataFrame matching df
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-    
-    # Only try to highlight if BOTH columns exist
     if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
         mask = df['Current Market Value'] > df['Value at Debut']
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # Light green
-    
+        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'  # light green
     return styles
 
 if not st.session_state['authenticated']:
@@ -264,27 +260,6 @@ else:
 
             final_df = filtered_data[display_columns].reset_index(drop=True)
 
-            # -------------------------------------------------------
-            # Create "% Change" column IF both 'Value at Debut' and 'Current Market Value' exist
-            # -------------------------------------------------------
-            if 'Value at Debut' in final_df.columns and 'Current Market Value' in final_df.columns:
-                final_df['% Change'] = None
-                # Where Value at Debut is not zero
-                mask = (final_df['Value at Debut'] != 0) & (~final_df['Value at Debut'].isna())
-                final_df.loc[mask, '% Change'] = (
-                    (final_df.loc[mask, 'Current Market Value'] - final_df.loc[mask, 'Value at Debut'])
-                    / final_df.loc[mask, 'Value at Debut']
-                    * 100
-                )
-                # Insert it right after "Current Market Value"
-                if '% Change' in final_df.columns:
-                    col_order = []
-                    for c in final_df.columns:
-                        col_order.append(c)
-                        if c == 'Current Market Value':
-                            col_order.append('% Change')
-                    final_df = final_df[col_order]
-
             # 1) We apply the highlight function
             styled_table = final_df.style.apply(highlight_mv, axis=None)
 
@@ -295,32 +270,26 @@ else:
                     return "€0"
                 return f"€{x:,.0f}"
 
-            # Format the money columns if they exist
-            money_cols = []
-            for c in ['Value at Debut', 'Current Market Value']:
-                if c in final_df.columns:
-                    money_cols.append(c)
-
             styled_table = styled_table.format(
-                subset=money_cols,
+                subset=["Value at Debut", "Current Market Value"],
                 formatter=money_format
             )
-
-            # 3) Format '% Change' if present
-            if '% Change' in final_df.columns:
-                styled_table = styled_table.format(
-                    subset=['% Change'],
-                    formatter=lambda x: f"{x:+.1f}%" if pd.notna(x) else ""
-                )
 
             # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
             # Download button
             if not final_df.empty:
-                # Keep numeric columns numeric for Excel
+                # For the Excel file, let's keep numeric columns numeric:
+                # We'll do a copy that doesn't have the styling for the file
+                download_df = final_df.copy()
+                
+                # If you want to keep them numeric, do nothing.
+                # If you want to keep them as text with "€", then convert them:
+                # But typically you'd keep them numeric so they can be manipulated.
+                
                 tmp_path = '/tmp/filtered_data.xlsx'
-                final_df.to_excel(tmp_path, index=False)
+                download_df.to_excel(tmp_path, index=False)
 
                 with open(tmp_path, 'rb') as f:
                     st.download_button(
