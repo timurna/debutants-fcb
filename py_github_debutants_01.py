@@ -3,18 +3,13 @@ import pandas as pd
 from datetime import datetime
 import gdown
 
-# Set the page to wide layout
 st.set_page_config(layout="wide")
 
-# Ensure 'authenticated' is initialized
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
-
-# Ensure 'run_clicked' is initialized
 if 'run_clicked' not in st.session_state:
     st.session_state['run_clicked'] = False
 
-# Authentication helper
 def authenticate(username, password):
     try:
         stored_username = st.secrets["credentials"]["username"]
@@ -41,7 +36,6 @@ def login():
 
 @st.cache_data
 def download_and_load_data(file_url, data_version):
-    """Download the Excel file from Google Drive and load it into a DataFrame."""
     xlsx_file = f'/tmp/debut01_{data_version}.xlsx'
     try:
         gdown.download(url=file_url, output=xlsx_file, quiet=False, fuzzy=True)
@@ -51,7 +45,6 @@ def download_and_load_data(file_url, data_version):
 
     try:
         data = pd.read_excel(xlsx_file, sheet_name='Sheet1')
-        # Rename columns to what we need
         data.rename(
             columns={
                 'comp_name': 'Competition',
@@ -77,20 +70,18 @@ def download_and_load_data(file_url, data_version):
             inplace=True
         )
 
-        # Convert Debut Date to datetime
+        # Date and year
         data['Debut Date'] = pd.to_datetime(data['Debut Date'], errors='coerce')
-
-        # Create Debut Year column
         if 'Debut Date' in data.columns:
             data['Debut Year'] = data['Debut Date'].dt.year
 
-        # Rename "Bundesliga" to "1. Bundesliga" if country is Germany
+        # Rename Bundesliga for Germany
         data.loc[
             (data['Competition'] == 'Bundesliga') & (data['Country'] == 'Germany'),
             'Competition'
         ] = '1. Bundesliga'
 
-        # Create a column for filter display: e.g. "1. Bundesliga (Germany)"
+        # Display string for filter
         data['CompCountryID'] = data['Competition'] + "||" + data['Country'].fillna('')
         data['Competition (Country)'] = data['Competition'] + " (" + data['Country'].fillna('') + ")"
 
@@ -105,27 +96,33 @@ def reset_run():
 def run_callback():
     st.session_state['run_clicked'] = True
 
-# Highlight the displayed "Current Market Value" cell if higher than "Value at Debut".
-def highlight_cmv(df):
-    """df is the styled DataFrame in wide form. We'll highlight
-       the 'Current Market Value' column if CMV > VAD.
-       The numeric columns are 'CMV Numeric' and 'VAD Numeric'."""
-    styles = pd.DataFrame('', index=df.index, columns=df.columns)
-    if 'CMV Numeric' in df.columns and 'VAD Numeric' in df.columns:
-        mask = df['CMV Numeric'] > df['VAD Numeric']
-        # Color the cell in the final 'Current Market Value' column
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'
+# Highlight function (row-based).
+# We look up numeric values from the dictionaries we built to decide whether to color the cell.
+def highlight_cmv(row, vad_map, cmv_map):
+    # row is the final displayed row (without numeric columns).
+    # row.name gives us the DataFrame index, which we can use to look up numeric values.
+    index = row.name
+
+    val_debut = vad_map.get(index, 0.0)
+    val_current = cmv_map.get(index, 0.0)
+
+    # By default, no styling
+    styles = [''] * len(row)
+
+    # If CMV is greater than VAD, highlight the Current Market Value cell
+    if val_current > val_debut:
+        # Find the column index for "Current Market Value"
+        if 'Current Market Value' in row.index:
+            cmv_idx = row.index.get_loc('Current Market Value')
+            styles[cmv_idx] = 'background-color: #c6f6d5'
     return styles
 
 if not st.session_state['authenticated']:
-    # Prompt for login
     login()
 else:
-    # Once authenticated, show the main content
     st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
 
-    # Download/Load Data
     file_url = 'https://drive.google.com/uc?id=15BbDQuW_ZJbIUIV_g7YOjoqrr8k4ZPF_'
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
@@ -136,108 +133,88 @@ else:
     else:
         st.write("Data successfully loaded!")
 
-        # Prepare filter columns
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
-            # 1) Competition (Country) filter with "All"
-            with col1:
-                if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
-                    all_comps = sorted(data['Competition (Country)'].dropna().unique())
-                    comp_options = ["All"] + all_comps
-                    selected_comp = st.multiselect("Select Competition",
-                                                   comp_options,
-                                                   default=[])  # no preselection
-                else:
-                    st.warning("No Competition/Country columns in data.")
-                    selected_comp = []
+            # 1) Competition
+            if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
+                all_comps = sorted(data['Competition (Country)'].dropna().unique())
+                comp_options = ["All"] + all_comps
+                selected_comp = col1.multiselect("Select Competition", comp_options, default=[])
+            else:
+                col1.warning("No Competition/Country columns in data.")
+                selected_comp = []
 
-            # 2) Debut Month filter with "All"
-            with col2:
-                if 'Debut Month' in data.columns:
-                    all_months = sorted(data['Debut Month'].dropna().unique())
-                    month_options = ["All"] + all_months
-                    debut_month = st.multiselect("Select Debut Month",
-                                                 month_options,
-                                                 default=[])  # no preselection
-                else:
-                    st.warning("No 'Debut Month' column in data.")
-                    debut_month = []
+            # 2) Debut Month
+            if 'Debut Month' in data.columns:
+                all_months = sorted(data['Debut Month'].dropna().unique())
+                month_options = ["All"] + all_months
+                debut_month = col2.multiselect("Select Debut Month", month_options, default=[])
+            else:
+                col2.warning("No 'Debut Month' column in data.")
+                debut_month = []
 
-            # 3) Debut Year filter with "All"
-            with col3:
-                if 'Debut Year' in data.columns:
-                    all_years = sorted(data['Debut Year'].dropna().unique())
-                    year_options = ["All"] + [str(yr) for yr in all_years]
-                    selected_years = st.multiselect("Select Debut Year",
-                                                    year_options,
-                                                    default=[])
-                else:
-                    st.warning("No 'Debut Year' column in data.")
-                    selected_years = []
+            # 3) Debut Year
+            if 'Debut Year' in data.columns:
+                all_years = sorted(data['Debut Year'].dropna().unique())
+                year_options = ["All"] + [str(yr) for yr in all_years]
+                selected_years = col3.multiselect("Select Debut Year", year_options, default=[])
+            else:
+                col3.warning("No 'Debut Year' column in data.")
+                selected_years = []
 
-            # 4) Age range filter
-            with col4:
-                if 'Age at Debut' in data.columns:
-                    min_age = int(data['Age at Debut'].min())
-                    max_age = int(data['Age at Debut'].max())
-                    age_range = st.slider("Select Age Range",
-                                          min_age, max_age,
-                                          (min_age, max_age))
-                else:
-                    st.warning("No 'Age at Debut' column in data.")
-                    age_range = (0, 100)
+            # 4) Age range
+            if 'Age at Debut' in data.columns:
+                min_age = int(data['Age at Debut'].min())
+                max_age = int(data['Age at Debut'].max())
+                age_range = col4.slider("Select Age Range", min_age, max_age, (min_age, max_age))
+            else:
+                col4.warning("No 'Age at Debut' column in data.")
+                age_range = (0, 100)
 
-            # 5) Minimum minutes played filter
-            with col5:
-                if 'Minutes Played' in data.columns:
-                    max_minutes = int(data['Minutes Played'].max())
-                    min_minutes = st.slider("Minimum Minutes Played",
-                                            0, max_minutes, 0)
-                else:
-                    st.warning("No 'Minutes Played' column in data.")
-                    min_minutes = 0
+            # 5) Minutes played
+            if 'Minutes Played' in data.columns:
+                max_minutes = int(data['Minutes Played'].max())
+                min_minutes = col5.slider("Minimum Minutes Played", 0, max_minutes, 0)
+            else:
+                col5.warning("No 'Minutes Played' column in data.")
+                min_minutes = 0
 
-        # Run Button
         st.button("Run", on_click=run_callback)
 
         if st.session_state['run_clicked']:
             filtered_data = data.copy()
 
-            # 1) Competition + Country filter
+            # Competition
             if selected_comp and "All" not in selected_comp:
-                # Convert user selection: e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
-                selected_ids = [
-                    item.replace(" (", "||").replace(")", "")
-                    for item in selected_comp
-                ]
+                selected_ids = [item.replace(" (", "||").replace(")", "") for item in selected_comp]
                 filtered_data = filtered_data[filtered_data['CompCountryID'].isin(selected_ids)]
 
-            # 2) Debut Month filter
+            # Debut Month
             if debut_month and "All" not in debut_month:
                 filtered_data = filtered_data[filtered_data['Debut Month'].isin(debut_month)]
 
-            # 3) Debut Year filter
+            # Debut Year
             if selected_years and "All" not in selected_years:
                 valid_years = [int(y) for y in selected_years if y.isdigit()]
                 filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
-            # 4) Age range filter
+            # Age range
             if 'Age at Debut' in filtered_data.columns:
                 filtered_data = filtered_data[
                     (filtered_data['Age at Debut'] >= age_range[0]) &
                     (filtered_data['Age at Debut'] <= age_range[1])
                 ]
 
-            # 5) Minimum minutes filter
+            # Minutes
             if 'Minutes Played' in filtered_data.columns:
                 filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
-            # Format Debut Date -> DD.MM.YYYY
+            # Format debut date
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Columns to display
+            # Final display columns
             display_columns = [
                 'Competition',
                 'Player Name',
@@ -260,69 +237,69 @@ else:
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
-            # Make a copy so we don't modify original
+            # Make a copy for display
             final_df = filtered_data[display_columns].reset_index(drop=True)
 
-            # -------------------------------------------------------
-            # 1) Keep numeric versions for highlighting & calculations
-            #    We'll store them in hidden columns: 'VAD Numeric' and 'CMV Numeric'.
-            # -------------------------------------------------------
-            final_df['VAD Numeric'] = final_df['Value at Debut']
-            final_df['CMV Numeric'] = final_df['Current Market Value']
+            # Build dictionaries for numeric lookups
+            # (So we can highlight "Current Market Value" if it's higher than "Value at Debut")
+            vad_map = filtered_data['Value at Debut'].to_dict()
+            cmv_map = filtered_data['Current Market Value'].to_dict()
 
-            # 2) Calculate percentage change
-            #    (CMV - VAD)/VAD * 100, only where VAD != 0
-            final_df['PctChange'] = None
-            mask_vad_nonzero = final_df['VAD Numeric'] != 0
-            final_df.loc[mask_vad_nonzero, 'PctChange'] = (
-                (final_df.loc[mask_vad_nonzero, 'CMV Numeric']
-                 - final_df.loc[mask_vad_nonzero, 'VAD Numeric'])
-                / final_df.loc[mask_vad_nonzero, 'VAD Numeric']
-                * 100
-            )
-
-            # 3) Build display string for "Value at Debut"
-            def format_vad(x):
+            # Calculate % change and build display strings
+            def format_value(x):
+                # Displays large integers as e.g. €2,500,000
                 if pd.isna(x) or x <= 0:
                     return "€0"
                 return f"€{x:,.0f}"
 
-            final_df['Value at Debut'] = final_df['VAD Numeric'].apply(format_vad)
+            # We'll create a list for the final display of "Current Market Value"
+            cmv_display = []
+            for idx, row in final_df.iterrows():
+                # idx is the row index in final_df, but we need the same index as in original filtered_data
+                # We can do something like if we kept the old index: row['index']? 
+                # But we did reset_index(drop=True) so they match in order. 
+                # We'll rely on that matching to do lookups in the dictionaries.
+                vad = vad_map.get(idx, 0.0)
+                cmv = cmv_map.get(idx, 0.0)
 
-            # 4) Build display string for "Current Market Value" with % in parentheses
-            def format_cmv(row):
-                cmv = row['CMV Numeric']
-                if pd.isna(cmv) or cmv <= 0:
-                    val_str = "€0"
-                else:
-                    val_str = f"€{cmv:,.0f}"
+                cmv_str = format_value(cmv)
 
-                pct = row['PctChange']
-                if pd.isna(pct) or row['VAD Numeric'] == 0:
-                    return val_str
-                sign = "+" if pct > 0 else ""
-                return f"{val_str} ({sign}{pct:.1f}%)"
+                # If there's no valid Value at Debut or it's zero, skip
+                if vad > 0:
+                    pct = (cmv - vad) / vad * 100 if vad else 0
+                    if not pd.isna(pct) and vad != 0:
+                        sign = "+" if pct > 0 else ""
+                        cmv_str = f"{cmv_str} ({sign}{pct:.1f}%)"
 
-            final_df['Current Market Value'] = final_df.apply(format_cmv, axis=1)
+                cmv_display.append(cmv_str)
 
-            # 5) Create the Styler to highlight if CMV > VAD
-            #    We still rely on 'CMV Numeric' and 'VAD Numeric' for the comparison
-            styler = final_df.style.apply(highlight_cmv, axis=None)
+            # Overwrite the final_df's columns for consistent display
+            # Format 'Value at Debut'
+            final_df['Value at Debut'] = final_df['Value at Debut'].apply(lambda x: format_value(x) if not pd.isna(x) else '€0')
+            # Format 'Current Market Value' (with %)
+            final_df['Current Market Value'] = cmv_display
 
-            # 6) Hide the numeric columns from display
-            styler.hide_columns(["VAD Numeric", "CMV Numeric", "PctChange"])
+            # Styler with row-based highlighting
+            def highlight_row(row):
+                # row.name is the final_df index
+                idx = row.name
+                val_debut = vad_map.get(idx, 0.0)
+                val_current = cmv_map.get(idx, 0.0)
+                styles = [''] * len(row)
+                # If CMV is higher, highlight the "Current Market Value" cell
+                if val_current > val_debut:
+                    cmv_idx = row.index.get_loc('Current Market Value')
+                    styles[cmv_idx] = 'background-color: #c6f6d5'
+                return styles
 
-            # 7) Show the styled DataFrame
+            styler = final_df.style.apply(highlight_row, axis=1)
+
             st.dataframe(styler, use_container_width=True)
 
-            # 8) Download button
+            # Download
             if not final_df.empty:
-                # For Excel, we might want the numeric columns to remain numeric.
-                # We'll create a copy that has only the visible columns in text form.
-                download_df = final_df.drop(columns=["VAD Numeric", "CMV Numeric", "PctChange"], errors="ignore")
-
                 tmp_path = '/tmp/filtered_data.xlsx'
-                download_df.to_excel(tmp_path, index=False)
+                final_df.to_excel(tmp_path, index=False)
 
                 with open(tmp_path, 'rb') as f:
                     st.download_button(
