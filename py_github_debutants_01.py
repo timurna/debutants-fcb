@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
 import gdown
+from datetime import datetime
 
-st.write("Pandas version at runtime:", pd.__version__)
-
-# Set the page to wide layout
+# ------------------------------------------------------------------------------------
+# PAGE CONFIG: Must be called before any other Streamlit calls (besides imports).
+# ------------------------------------------------------------------------------------
 st.set_page_config(layout="wide")
 
 # Ensure 'authenticated' is initialized
@@ -16,7 +16,9 @@ if 'authenticated' not in st.session_state:
 if 'run_clicked' not in st.session_state:
     st.session_state['run_clicked'] = False
 
-# --- Authentication helper ---
+# ------------------------------------------------------------------------------------
+# AUTHENTICATION HELPERS
+# ------------------------------------------------------------------------------------
 def authenticate(username, password):
     try:
         stored_username = st.secrets["credentials"]["username"]
@@ -41,10 +43,14 @@ def login():
 
     st.button("Login", on_click=authenticate_and_login)
 
-# --- Data download and load ---
+# ------------------------------------------------------------------------------------
+# DATA DOWNLOAD & LOAD
+# ------------------------------------------------------------------------------------
 @st.cache_data
 def download_and_load_data(file_url, data_version):
-    """Download the Excel file from Google Drive and load it into a DataFrame."""
+    """
+    Download the Excel file from Google Drive and load it into a DataFrame.
+    """
     xlsx_file = f'/tmp/debut01_{data_version}.xlsx'
     try:
         gdown.download(url=file_url, output=xlsx_file, quiet=False, fuzzy=True)
@@ -54,7 +60,7 @@ def download_and_load_data(file_url, data_version):
 
     try:
         data = pd.read_excel(xlsx_file, sheet_name='Sheet1')
-        # Rename columns to what we need
+        # Rename columns
         data.rename(
             columns={
                 'comp_name': 'Competition',
@@ -93,20 +99,25 @@ def download_and_load_data(file_url, data_version):
             'Competition'
         ] = '1. Bundesliga'
 
-        # Create a column for filter display: e.g. "1. Bundesliga (Germany)"
+        # Create Competition (Country) columns for filtering
         data['CompCountryID'] = data['Competition'] + "||" + data['Country'].fillna('')
         data['Competition (Country)'] = data['Competition'] + " (" + data['Country'].fillna('') + ")"
 
         return data
+
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
         return None
 
-# --- Callback to set run_clicked ---
+# ------------------------------------------------------------------------------------
+# CALLBACKS
+# ------------------------------------------------------------------------------------
 def run_callback():
     st.session_state['run_clicked'] = True
 
-# --- Highlight function ---
+# ------------------------------------------------------------------------------------
+# STYLING AND FORMAT FUNCTIONS
+# ------------------------------------------------------------------------------------
 def highlight_mv(df):
     """
     Highlight the 'Current Market Value' cell if the numeric current MV
@@ -118,7 +129,6 @@ def highlight_mv(df):
         styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'
     return styles
 
-# --- Format function for Current Market Value + % change ---
 def format_cmv_with_change(row):
     """
     Return a string: e.g. '€1,000,000 (+50.0%)' if there's an increase.
@@ -141,10 +151,15 @@ def format_cmv_with_change(row):
         return base_str
     return f"{base_str} ({pct_change:+.1f}%)"
 
-# --- Main app logic ---
+# ------------------------------------------------------------------------------------
+# MAIN APP LOGIC
+# ------------------------------------------------------------------------------------
 if not st.session_state['authenticated']:
+    # Show login interface
     login()
 else:
+    # Show main content after successful login
+    # Logo or image
     st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
 
@@ -153,6 +168,7 @@ else:
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
 
+    # If data fails to load, stop
     if data is None:
         st.error("Failed to load data.")
         st.stop()
@@ -166,7 +182,9 @@ else:
         # Build the display version of Current Market Value
         data['Current Market Value'] = data.apply(format_cmv_with_change, axis=1)
 
-        # Filter UI
+        # ---------------
+        # FILTER UI
+        # ---------------
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
@@ -219,34 +237,37 @@ else:
                     st.warning("No 'Minutes Played' column in data.")
                     min_minutes = 0
 
-        # Run Button
+        # ---------------
+        # RUN BUTTON
+        # ---------------
         st.button("Run", on_click=run_callback)
 
         if st.session_state['run_clicked']:
+            # Make a copy for filtering
             filtered_data = data.copy()
 
-            # 1) Competition + Country filter
+            # 1) Competition + Country
             if selected_comp and "All" not in selected_comp:
                 selected_ids = [c.replace(" (", "||").replace(")", "") for c in selected_comp]
                 filtered_data = filtered_data[filtered_data['CompCountryID'].isin(selected_ids)]
 
-            # 2) Debut Month filter
+            # 2) Debut Month
             if debut_month and "All" not in debut_month:
                 filtered_data = filtered_data[filtered_data['Debut Month'].isin(debut_month)]
 
-            # 3) Debut Year filter
+            # 3) Debut Year
             if selected_years and "All" not in selected_years:
                 valid_years = [int(y) for y in selected_years if y.isdigit()]
                 filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
-            # 4) Age range filter
+            # 4) Age range
             if 'Age at Debut' in filtered_data.columns:
                 filtered_data = filtered_data[
                     (filtered_data['Age at Debut'] >= age_range[0]) &
                     (filtered_data['Age at Debut'] <= age_range[1])
                 ]
 
-            # 5) Minimum minutes filter
+            # 5) Minimum minutes
             if 'Minutes Played' in filtered_data.columns:
                 filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
@@ -254,7 +275,9 @@ else:
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Build final_df with numeric columns so highlight_mv can work
+            # ---------------
+            # BUILD final_df
+            # ---------------
             all_columns_we_need = [
                 "Competition",
                 "Player Name",
@@ -274,19 +297,18 @@ else:
                 "Value at Debut (Numeric)",
                 "Current Market Value (Numeric)",
             ]
-
-            # Only keep columns that exist in filtered_data
             all_columns_we_need = [c for c in all_columns_we_need if c in filtered_data.columns]
             final_df = filtered_data[all_columns_we_need].reset_index(drop=True)
 
-            # Headline
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
-            # Apply highlighting
+            # ---------------
+            # APPLY STYLING
+            # ---------------
             styled_table = final_df.style.apply(highlight_mv, axis=None)
 
-            # Format "Value at Debut" as money
+            # Format only "Value at Debut"
             def money_format(x):
                 if pd.isna(x):
                     return "€0"
@@ -294,16 +316,16 @@ else:
 
             styled_table = styled_table.format(subset=["Value at Debut"], formatter=money_format)
 
-            # Hide numeric columns (now that you have pandas >= 1.4)
-            styled_table = styled_table.hide_columns(["Value at Debut (Numeric)", 
-                                                     "Current Market Value (Numeric)"])
+            # Hide numeric columns
+            styled_table = styled_table.hide_columns(["Value at Debut (Numeric)",
+                                                      "Current Market Value (Numeric)"])
 
-            # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
-            # Download button
+            # ---------------
+            # DOWNLOAD BUTTON
+            # ---------------
             if not final_df.empty:
-                # Save a copy of the un-styled DataFrame
                 tmp_path = '/tmp/filtered_data.xlsx'
                 filtered_data.to_excel(tmp_path, index=False)
                 with open(tmp_path, 'rb') as f:
