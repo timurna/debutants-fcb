@@ -3,6 +3,8 @@ import pandas as pd
 from datetime import datetime
 import gdown
 
+st.write("Pandas version at runtime:", pd.__version__)
+
 # Set the page to wide layout
 st.set_page_config(layout="wide")
 
