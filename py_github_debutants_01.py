@@ -37,7 +37,7 @@ def login():
 # Function to download and load the Excel file
 @st.cache_data
 def download_and_load_data(file_url, data_version):
-    xlsx_file = f'/tmp/newup_{data_version}.xlsx'
+    xlsx_file = f'/tmp/debut01_{data_version}.xlsx'
     try:
         gdown.download(url=file_url, output=xlsx_file, quiet=False, fuzzy=True)
     except Exception as e:
@@ -66,7 +66,7 @@ if not st.session_state.authenticated:
     login()
 else:
     st.write("Welcome! You are logged in.")
-    file_url = 'https://drive.google.com/uc?id=1Y6hwHlCDoNRG3M1-UqFqM6KvNPcFBP2r'
+    file_url = 'https://drive.google.com/uc?id=15BbDQuW_ZJbIUIV_g7YOjoqrr8k4ZPF_'
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
 
