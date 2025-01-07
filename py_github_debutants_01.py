@@ -4,7 +4,7 @@ import gdown
 from datetime import datetime
 
 # ------------------------------------------------------------------------------------
-# PAGE CONFIG: Must be called before any other Streamlit calls (besides imports).
+# PAGE CONFIG: Must be the very first Streamlit command
 # ------------------------------------------------------------------------------------
 st.set_page_config(layout="wide")
 
@@ -110,7 +110,7 @@ def download_and_load_data(file_url, data_version):
         return None
 
 # ------------------------------------------------------------------------------------
-# CALLBACKS
+# CALLBACK
 # ------------------------------------------------------------------------------------
 def run_callback():
     st.session_state['run_clicked'] = True
@@ -181,6 +181,9 @@ else:
 
         # Build the display version of Current Market Value
         data['Current Market Value'] = data.apply(format_cmv_with_change, axis=1)
+
+        # Just to confirm environment at runtime:
+        st.write("Pandas version at runtime:", pd.__version__)
 
         # ---------------
         # FILTER UI
@@ -316,10 +319,14 @@ else:
 
             styled_table = styled_table.format(subset=["Value at Debut"], formatter=money_format)
 
-            # Hide numeric columns
-            styled_table = styled_table.hide_columns(["Value at Debut (Numeric)",
-                                                      "Current Market Value (Numeric)"])
+            # -------------------------------------------------------------------------
+            # INSTEAD OF .hide_columns(), DROP THE NUMERIC COLUMNS FROM THE STYLER DATA
+            # -------------------------------------------------------------------------
+            for col_to_drop in ["Value at Debut (Numeric)", "Current Market Value (Numeric)"]:
+                if col_to_drop in styled_table.data.columns:
+                    styled_table.data.drop(col_to_drop, axis=1, inplace=True)
 
+            # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
             # ---------------
