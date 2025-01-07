@@ -120,10 +120,9 @@ else:
     else:
         st.write("Data successfully loaded!")
 
-        # 3) Build Filters in a Single Row
-        #    We'll use st.columns(...) so the filters appear horizontally.
+        # 3) Build Filters in a Single Row + one more for minutes
         with st.container():
-            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
+            col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
             with col1:
                 # Competition filter
@@ -170,6 +169,17 @@ else:
                     st.warning("No 'Age at Debut' column in data.")
                     age_range = (0, 100)
 
+            with col5:
+                # Minimum minutes played filter
+                if 'Minutes Played' in data.columns:
+                    # We'll allow from 0 to the max found in the dataset
+                    max_minutes = int(data['Minutes Played'].max())
+                    min_minutes = st.slider("Minimum Minutes Played",
+                                            0, max_minutes, 0)
+                else:
+                    st.warning("No 'Minutes Played' column in data.")
+                    min_minutes = 0
+
         # 4) Run Button
         st.button("Run", on_click=run_callback)
 
@@ -196,6 +206,10 @@ else:
                     (filtered_data['Age at Debut'] >= age_range[0]) &
                     (filtered_data['Age at Debut'] <= age_range[1])
                 ]
+
+            # Minimum minutes filter
+            if 'Minutes Played' in filtered_data.columns:
+                filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
             # Choose which columns we want to display
             display_columns = [
