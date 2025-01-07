@@ -10,6 +10,10 @@ st.set_page_config(layout="wide")
 if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 
+if 'run_clicked' not in st.session_state:
+    st.session_state['run_clicked'] = False
+
+# Authentication
 def authenticate(username, password):
     try:
         stored_username = st.secrets["credentials"]["username"]
@@ -34,7 +38,7 @@ def login():
 
     st.button("Login", on_click=authenticate_and_login)
 
-# Function to download and load the Excel file
+# Download and load data
 @st.cache_data
 def download_and_load_data(file_url, data_version):
     xlsx_file = f'/tmp/debut01_{data_version}.xlsx'
@@ -62,9 +66,19 @@ def download_and_load_data(file_url, data_version):
         st.error(f"Error reading Excel file: {e}")
         return None
 
+# Reset run state
+def reset_run():
+    st.session_state['run_clicked'] = False
+
+def run_callback():
+    st.session_state['run_clicked'] = True
+
+# Authentication check
 if not st.session_state.authenticated:
     login()
 else:
+    # User is authenticated
+    st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
     file_url = 'https://drive.google.com/uc?id=15BbDQuW_ZJbIUIV_g7YOjoqrr8k4ZPF_'
     data_version = 'v1'
@@ -76,36 +90,70 @@ else:
     else:
         st.write("Data successfully loaded!")
 
-        # Sidebar Filters
-        st.sidebar.header("Filter Options")
-        competition = st.sidebar.multiselect(
-            "Select Competition", data['Competition'].unique(), data['Competition'].unique()
-        )
-        month = st.sidebar.multiselect(
-            "Select Debut Month", data['Debut Month'].unique(), data['Debut Month'].unique()
-        )
-        age_range = st.sidebar.slider(
-            "Select Age Range",
-            int(data['Age at Debut'].min()),
-            int(data['Age at Debut'].max()),
-            (int(data['Age at Debut'].min()), int(data['Age at Debut'].max()))
-        )
+        # Add filters below the logo
+        with st.container():
+            col1, col2, col3, col4 = st.columns([1, 1, 1, 1])
 
-        filtered_data = data[
-            (data['Competition'].isin(competition)) &
-            (data['Debut Month'].isin(month)) &
-            (data['Age at Debut'].between(age_range[0], age_range[1]))
-        ]
+            # Competition filter
+            with col1:
+                competition = st.multiselect(
+                    "Select Competition", data['Competition'].unique(), data['Competition'].unique()
+                )
 
-        st.title("Football Debutants Explorer")
-        st.write(f"Showing {len(filtered_data)} debutants based on filters")
-        st.dataframe(filtered_data)
+            # Debut year filter
+            with col2:
+                data['Debut Year'] = data['Debut Date'].dt.year
+                debut_year = st.multiselect(
+                    "Select Debut Year", data['Debut Year'].unique(), data['Debut Year'].unique()
+                )
 
-        filtered_data_xlsx = filtered_data.to_excel('/tmp/filtered_data.xlsx', index=False)
-        with open('/tmp/filtered_data.xlsx', 'rb') as f:
-            st.download_button(
-                "Download Filtered Data as Excel",
-                data=f,
-                file_name="filtered_debutants.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # Debut month filter
+            with col3:
+                month = st.multiselect(
+                    "Select Debut Month", data['Debut Month'].unique(), data['Debut Month'].unique()
+                )
+
+            # Age range filter
+            with col4:
+                age_range = st.slider(
+                    "Select Age Range",
+                    int(data['Age at Debut'].min()),
+                    int(data['Age at Debut'].max()),
+                    (int(data['Age at Debut'].min()), int(data['Age at Debut'].max()))
+                )
+
+        # Run button
+        st.button("Run", on_click=run_callback)
+
+        # Apply filters when 'Run' is clicked
+        if st.session_state['run_clicked']:
+            filtered_data = data[
+                (data['Competition'].isin(competition)) &
+                (data['Debut Year'].isin(debut_year)) &
+                (data['Debut Month'].isin(month)) &
+                (data['Age at Debut'].between(age_range[0], age_range[1]))
+            ]
+
+            # Columns to display
+            display_columns = [
+                'Competition', 'Country', 'Player Name', 'Position', 'Nationality',
+                'Debut Club', 'Opponent', 'Debut Date', 'Age at Debut',
+                'value_at_debut', 'appearances', 'goals', 'minutes_played'
+            ]
+
+            # Filter and display only selected columns
+            filtered_data = filtered_data[display_columns]
+
+            st.title("Football Debutants Explorer")
+            st.write(f"Showing {len(filtered_data)} debutants based on filters")
+            st.dataframe(filtered_data)
+
+            # Download button
+            filtered_data_xlsx = filtered_data.to_excel('/tmp/filtered_data.xlsx', index=False)
+            with open('/tmp/filtered_data.xlsx', 'rb') as f:
+                st.download_button(
+                    "Download Filtered Data as Excel",
+                    data=f,
+                    file_name="filtered_debutants.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
