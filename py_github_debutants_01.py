@@ -109,7 +109,10 @@ def run_callback():
 
 # --- Highlight function ---
 def highlight_mv(df):
-    """Highlight the 'Current Market Value' cell if the numeric current MV is higher than the numeric debut MV."""
+    """
+    Highlight the 'Current Market Value' cell if the numeric current MV
+    is higher than the numeric debut MV.
+    """
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
     if 'Value at Debut (Numeric)' in df.columns and 'Current Market Value (Numeric)' in df.columns:
         mask = df['Current Market Value (Numeric)'] > df['Value at Debut (Numeric)']
@@ -119,29 +122,25 @@ def highlight_mv(df):
 
 # --- Format function for Current Market Value + % change ---
 def format_cmv_with_change(row):
-    """Return a string: e.g. '€1,000,000 (+50.0%)' if there's an increase."""
+    """
+    Return a string: e.g. '€1,000,000 (+50.0%)' if there's an increase.
+    Handles missing/zero values gracefully.
+    """
     debut_val = row.get('Value at Debut (Numeric)')
     curr_val = row.get('Current Market Value (Numeric)')
 
-    # If current value is NaN, show "€0" or something else
     if pd.isna(curr_val):
-        return "€0"
+        return "€0"  # or some other placeholder
 
-    # Base string for the current value
     base_str = f"€{curr_val:,.0f}"
 
-    # If debut value is missing or zero, can't calculate % change
     if pd.isna(debut_val) or debut_val == 0:
+        # Can't calculate percentage if debut is missing/zero
         return base_str
 
-    # Calculate percentage change
     pct_change = (curr_val - debut_val) / debut_val * 100
-
-    # If no change, just show the base number
     if pct_change == 0:
         return base_str
-
-    # Otherwise, append sign and one decimal place
     return f"{base_str} ({pct_change:+.1f}%)"
 
 
@@ -172,7 +171,7 @@ else:
         # --- Build the display version of Current Market Value with percentage ---
         data['Current Market Value'] = data.apply(format_cmv_with_change, axis=1)
 
-        # Prepare filter columns
+        # --- Filter UI ---
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
@@ -181,9 +180,11 @@ else:
                 if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                     all_comps = sorted(data['Competition (Country)'].dropna().unique())
                     comp_options = ["All"] + list(all_comps)
-                    selected_comp = st.multiselect("Select Competition",
-                                                   comp_options,
-                                                   default=[])  # no preselection
+                    selected_comp = st.multiselect(
+                        "Select Competition",
+                        comp_options,
+                        default=[]
+                    )
                 else:
                     st.warning("No Competition/Country columns in data.")
                     selected_comp = []
@@ -193,9 +194,11 @@ else:
                 if 'Debut Month' in data.columns:
                     all_months = sorted(data['Debut Month'].dropna().unique())
                     month_options = ["All"] + list(all_months)
-                    debut_month = st.multiselect("Select Debut Month",
-                                                 month_options,
-                                                 default=[])  # no preselection
+                    debut_month = st.multiselect(
+                        "Select Debut Month",
+                        month_options,
+                        default=[]
+                    )
                 else:
                     st.warning("No 'Debut Month' column in data.")
                     debut_month = []
@@ -205,9 +208,11 @@ else:
                 if 'Debut Year' in data.columns:
                     all_years = sorted(data['Debut Year'].dropna().unique())
                     year_options = ["All"] + [str(yr) for yr in all_years]
-                    selected_years = st.multiselect("Select Debut Year",
-                                                    year_options,
-                                                    default=[])  # no preselection
+                    selected_years = st.multiselect(
+                        "Select Debut Year",
+                        year_options,
+                        default=[]
+                    )
                 else:
                     st.warning("No 'Debut Year' column in data.")
                     selected_years = []
@@ -217,9 +222,11 @@ else:
                 if 'Age at Debut' in data.columns:
                     min_age = int(data['Age at Debut'].min())
                     max_age = int(data['Age at Debut'].max())
-                    age_range = st.slider("Select Age Range",
-                                          min_age, max_age,
-                                          (min_age, max_age))
+                    age_range = st.slider(
+                        "Select Age Range",
+                        min_age, max_age,
+                        (min_age, max_age)
+                    )
                 else:
                     st.warning("No 'Age at Debut' column in data.")
                     age_range = (0, 100)
@@ -228,8 +235,10 @@ else:
             with col5:
                 if 'Minutes Played' in data.columns:
                     max_minutes = int(data['Minutes Played'].max())
-                    min_minutes = st.slider("Minimum Minutes Played",
-                                            0, max_minutes, 0)
+                    min_minutes = st.slider(
+                        "Minimum Minutes Played",
+                        0, max_minutes, 0
+                    )
                 else:
                     st.warning("No 'Minutes Played' column in data.")
                     min_minutes = 0
@@ -242,7 +251,7 @@ else:
 
             # 1) Competition + Country filter
             if selected_comp and "All" not in selected_comp:
-                # Convert user selection e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
+                # Convert e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
                 selected_ids = [
                     item.replace(" (", "||").replace(")", "")
                     for item in selected_comp
@@ -255,7 +264,6 @@ else:
 
             # 3) Debut Year filter
             if selected_years and "All" not in selected_years:
-                # Convert strings back to int
                 valid_years = [int(y) for y in selected_years if y.isdigit()]
                 filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
@@ -274,37 +282,40 @@ else:
             if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
                 filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-            # Display columns
-            display_columns = [
-                'Competition',
-                'Player Name',
-                'Position',
-                'Nationality',
-                'Debut Club',
-                'Opponent',
-                'Debut Date',
-                'Age at Debut',
-                'Goals For',
-                'Goals Against',
-                'Appearances',
-                'Goals',
-                'Minutes Played',
-                'Value at Debut',
-                'Current Market Value',  # now has the % in parentheses
+            # --- Build final_df with numeric columns (so highlight_mv can work) ---
+            all_columns_we_need = [
+                "Competition",
+                "Player Name",
+                "Position",
+                "Nationality",
+                "Debut Club",
+                "Opponent",
+                "Debut Date",
+                "Age at Debut",
+                "Goals For",
+                "Goals Against",
+                "Appearances",
+                "Goals",
+                "Minutes Played",
+                "Value at Debut",
+                "Current Market Value",            # string with % in parentheses
+                "Value at Debut (Numeric)",        # numeric for highlight
+                "Current Market Value (Numeric)",  # numeric for highlight
             ]
-            # Only keep columns that actually exist in our filtered DataFrame
-            display_columns = [c for c in display_columns if c in filtered_data.columns]
+
+            # Only keep columns that actually exist in filtered_data
+            all_columns_we_need = [c for c in all_columns_we_need if c in filtered_data.columns]
+
+            final_df = filtered_data[all_columns_we_need].reset_index(drop=True)
 
             # Headline
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
-            final_df = filtered_data[display_columns].reset_index(drop=True)
-
-            # We apply the highlight function
+            # Apply highlight function
             styled_table = final_df.style.apply(highlight_mv, axis=None)
 
-            # Format only "Value at Debut" as money (this is still numeric)
+            # Format only "Value at Debut" as money (still numeric in our DF)
             def money_format(x):
                 if pd.isna(x):
                     return "€0"
@@ -315,19 +326,21 @@ else:
                 formatter=money_format
             )
 
+            # Hide numeric columns so user doesn't see them
+            if "Value at Debut (Numeric)" in final_df.columns and "Current Market Value (Numeric)" in final_df.columns:
+                styled_table = styled_table.hide_columns(["Value at Debut (Numeric)", "Current Market Value (Numeric)"])
+
             # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
             # --- Download button ---
             if not final_df.empty:
-                # For Excel, let's keep numeric columns numeric:
-                # We'll do a copy that doesn't have the styling for the file
+                # Copy for Excel download
                 download_df = filtered_data.copy()
-                
-                # Replace the date back to actual datetime if needed:
-                # (Because we turned it into a string with dd.mm.yyyy.)
-                # If you want to keep dd.mm.yyyy in the Excel, that's also fine. 
-                # We'll leave it as is for this example.
+
+                # If you want the 'Debut Date' in datetime format in Excel,
+                # you could revert to the original datetime object. 
+                # We'll leave the 'DD.MM.YYYY' string for simplicity.
 
                 tmp_path = '/tmp/filtered_data.xlsx'
                 download_df.to_excel(tmp_path, index=False)
