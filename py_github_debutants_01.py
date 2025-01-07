@@ -100,10 +100,7 @@ def download_and_load_data(file_url, data_version):
         st.error(f"Error reading Excel file: {e}")
         return None
 
-# --- Utility callbacks ---
-def reset_run():
-    st.session_state['run_clicked'] = False
-
+# --- Callback to set run_clicked ---
 def run_callback():
     st.session_state['run_clicked'] = True
 
@@ -121,6 +118,10 @@ def highlight_mv(df):
 
 # --- Format function for Current Market Value + % change ---
 def format_cmv_with_change(row):
+    """
+    Return a string: e.g. '€1,000,000 (+50.0%)' if there's an increase.
+    Handles missing/zero values gracefully.
+    """
     debut_val = row.get('Value at Debut (Numeric)')
     curr_val = row.get('Current Market Value (Numeric)')
 
@@ -130,7 +131,7 @@ def format_cmv_with_change(row):
     base_str = f"€{curr_val:,.0f}"
 
     if pd.isna(debut_val) or debut_val == 0:
-        # Can't calculate percentage if debut is missing or zero
+        # Can't calculate percentage if debut is missing/zero
         return base_str
 
     pct_change = (curr_val - debut_val) / debut_val * 100
@@ -140,10 +141,8 @@ def format_cmv_with_change(row):
 
 # --- Main app logic ---
 if not st.session_state['authenticated']:
-    # Prompt for login
     login()
 else:
-    # Once authenticated, show the main content
     st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
 
@@ -169,7 +168,7 @@ else:
         with st.container():
             col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
-            # 1) Competition (Country) filter with "All"
+            # 1) Competition (Country) filter
             with col1:
                 if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                     all_comps = sorted(data['Competition (Country)'].dropna().unique())
@@ -179,7 +178,7 @@ else:
                     st.warning("No Competition/Country columns in data.")
                     selected_comp = []
 
-            # 2) Debut Month filter with "All"
+            # 2) Debut Month filter
             with col2:
                 if 'Debut Month' in data.columns:
                     all_months = sorted(data['Debut Month'].dropna().unique())
@@ -189,7 +188,7 @@ else:
                     st.warning("No 'Debut Month' column in data.")
                     debut_month = []
 
-            # 3) Debut Year filter with "All"
+            # 3) Debut Year filter
             with col3:
                 if 'Debut Year' in data.columns:
                     all_years = sorted(data['Debut Year'].dropna().unique())
@@ -209,7 +208,7 @@ else:
                     st.warning("No 'Age at Debut' column in data.")
                     age_range = (0, 100)
 
-            # 5) Minimum minutes played filter
+            # 5) Minimum minutes played
             with col5:
                 if 'Minutes Played' in data.columns:
                     max_minutes = int(data['Minutes Played'].max())
@@ -226,10 +225,7 @@ else:
 
             # 1) Competition + Country filter
             if selected_comp and "All" not in selected_comp:
-                selected_ids = [
-                    item.replace(" (", "||").replace(")", "")
-                    for item in selected_comp
-                ]
+                selected_ids = [c.replace(" (", "||").replace(")", "") for c in selected_comp]
                 filtered_data = filtered_data[filtered_data['CompCountryID'].isin(selected_ids)]
 
             # 2) Debut Month filter
@@ -277,6 +273,7 @@ else:
                 "Current Market Value (Numeric)",
             ]
 
+            # Only keep columns that exist in filtered_data
             all_columns_we_need = [c for c in all_columns_we_need if c in filtered_data.columns]
             final_df = filtered_data[all_columns_we_need].reset_index(drop=True)
 
@@ -284,10 +281,10 @@ else:
             st.title("Debütanten")
             st.write(f"{len(filtered_data)} Debütanten")
 
-            # Apply highlight
+            # Apply highlighting
             styled_table = final_df.style.apply(highlight_mv, axis=None)
 
-            # Format only "Value at Debut" as money
+            # Format "Value at Debut" as money
             def money_format(x):
                 if pd.isna(x):
                     return "€0"
@@ -295,14 +292,16 @@ else:
 
             styled_table = styled_table.format(subset=["Value at Debut"], formatter=money_format)
 
-            # --- COMMENT OUT OR REMOVE THIS IF YOU GET AttributeError ---
-            # styled_table = styled_table.hide_columns(["Value at Debut (Numeric)", 
-            #                                          "Current Market Value (Numeric)"])
+            # Hide numeric columns (now that you have pandas >= 1.4)
+            styled_table = styled_table.hide_columns(["Value at Debut (Numeric)", 
+                                                     "Current Market Value (Numeric)"])
 
+            # Show the styled DataFrame
             st.dataframe(styled_table, use_container_width=True)
 
             # Download button
             if not final_df.empty:
+                # Save a copy of the un-styled DataFrame
                 tmp_path = '/tmp/filtered_data.xlsx'
                 filtered_data.to_excel(tmp_path, index=False)
                 with open(tmp_path, 'rb') as f:
