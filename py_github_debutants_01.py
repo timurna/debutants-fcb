@@ -3,10 +3,6 @@ import pandas as pd
 import gdown
 from datetime import datetime
 
-# These imports let us manually raise the rerun exception if needed.
-from streamlit.runtime.scriptrunner import RerunException
-from streamlit.runtime.scriptrunner.script_requests import RerunData
-
 # ====================================================================================
 # 1) PAGE CONFIG
 #    Must be the first Streamlit command (besides imports) to avoid SetPageConfig error
@@ -121,24 +117,10 @@ def download_and_load_data(file_url, data_version):
         return None
 
 # ====================================================================================
-# 5) CALLBACKS
+# 5) HELPER: RUN CALLBACK
 # ====================================================================================
 def run_callback():
     st.session_state['run_clicked'] = True
-
-def clear_callback():
-    """
-    Clears all session_state items except for authentication-related ones,
-    so the dashboard reverts to the 'just logged in' state.
-    Then forces a rerun using the direct RerunException approach.
-    """
-    keys_to_preserve = {'authenticated', 'login_username', 'login_password'}
-    for key in list(st.session_state.keys()):
-        if key not in keys_to_preserve:
-            del st.session_state[key]
-
-    # Force a full rerun
-    raise RerunException(RerunData(None, None, None))
 
 # ====================================================================================
 # 6) HIGHLIGHT FUNCTION
@@ -198,8 +180,11 @@ else:
     # Create our new column for % Change
     data['% Change'] = data.apply(calc_percent_change, axis=1)
 
-    # Remove invalid negative ages
+    # --------------------------------------------------
+    # Remove invalid ages (e.g., -1) entirely
+    # --------------------------------------------------
     if 'Age at Debut' in data.columns:
+        # We'll keep only rows where Age >= 0 (or maybe >= 1 or >= 14, up to your preference)
         data = data[data['Age at Debut'] >= 0]
 
     # ==================================================================================
@@ -261,13 +246,8 @@ else:
                 st.warning("No 'Minutes Played' column in data.")
                 min_minutes = 0
 
-    # RUN & CLEAR buttons side by side
-    with st.container():
-        run_col, clear_col = st.columns([0.2, 0.2])  # adjust widths as you see fit
-        with run_col:
-            st.button("Run", on_click=run_callback)
-        with clear_col:
-            st.button("Clear", on_click=clear_callback)
+    # RUN button
+    st.button("Run", on_click=run_callback)
 
     # ==================================================================================
     # 8B) APPLY FILTERS
