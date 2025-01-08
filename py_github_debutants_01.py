@@ -273,8 +273,13 @@ else:
         if 'Minutes Played' in filtered_data.columns:
             filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
-        # Convert Debut Date to "DD.MM.YYYY" string
+        # -----------
+        # SORT BY DEBUT DATE (DESC), THEN FORMAT
+        # -----------
         if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
+            # Sort descending by the actual datetime
+            filtered_data.sort_values('Debut Date', ascending=False, inplace=True)
+            # Then convert the column to a string for display
             filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
         # ==================================================================================
