@@ -3,9 +3,6 @@ import pandas as pd
 import gdown
 from datetime import datetime
 
-# Import just RerunException (no RerunData needed)
-from streamlit.runtime.scriptrunner import RerunException
-
 # ====================================================================================
 # 1) PAGE CONFIG
 # ====================================================================================
@@ -52,9 +49,6 @@ def login():
 # ====================================================================================
 @st.cache_data
 def download_and_load_data(file_url, data_version):
-    """
-    Download an Excel file from Google Drive via gdown, then read into a DataFrame.
-    """
     xlsx_file = f'/tmp/debut02_{data_version}.xlsx'
     try:
         gdown.download(url=file_url, output=xlsx_file, quiet=False, fuzzy=True)
@@ -89,14 +83,10 @@ def download_and_load_data(file_url, data_version):
             inplace=True
         )
 
-        # Convert Debut Date to datetime
         data['Debut Date'] = pd.to_datetime(data['Debut Date'], errors='coerce')
-
-        # Create Debut Year column
         if 'Debut Date' in data.columns:
             data['Debut Year'] = data['Debut Date'].dt.year
 
-        # Rename "Bundesliga" -> "1. Bundesliga" if country is Germany
         data.loc[
             (data['Competition'] == 'Bundesliga') & (data['Country'] == 'Germany'),
             'Competition'
@@ -118,31 +108,25 @@ def run_callback():
 
 def clear_callback():
     """
-    Clears all session_state items except authentication-related keys,
-    then raises RerunException to reload the script.
+    Clears session state except for authentication keys.
+    Does NOT force rerun (since rerun is unavailable).
+    User can refresh the page or just see fresh filters when they next click 'Run'.
     """
     keys_to_preserve = {'authenticated', 'login_username', 'login_password'}
     for key in list(st.session_state.keys()):
         if key not in keys_to_preserve:
             del st.session_state[key]
 
-    # Force a full rerun
-    raise RerunException()
+    st.info("All filters cleared! Please refresh your page or click 'Run' again.")
 
 # ====================================================================================
 # 6) HIGHLIGHT FUNCTION
 # ====================================================================================
 def highlight_mv(df):
-    """
-    If Current Market Value is higher than Value at Debut => green.
-    If Current Market Value is lower => red.
-    """
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
-
     if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
         mask_up = df['Current Market Value'] > df['Value at Debut']
         mask_down = df['Current Market Value'] < df['Value at Debut']
-
         styles.loc[mask_up, 'Current Market Value'] = 'background-color: #c6f6d5'
         styles.loc[mask_down, 'Current Market Value'] = 'background-color: #feb2b2'
     return styles
@@ -151,10 +135,6 @@ def highlight_mv(df):
 # 7) PERCENT CHANGE FUNCTION
 # ====================================================================================
 def calc_percent_change(row):
-    """
-    Calculate percentage = ((Current - Debut) / Debut) * 100
-    If Debut is zero or NaN, return None.
-    """
     debut_val = row.get('Value at Debut')
     curr_val = row.get('Current Market Value')
     if pd.isna(debut_val) or pd.isna(curr_val) or debut_val == 0:
@@ -170,7 +150,6 @@ else:
     st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
 
-    # Download & load Data
     file_url = 'https://drive.google.com/uc?id=1aeSuhDoWEiyD34PjnDIqIVtbbmL_aTRI'
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
@@ -180,7 +159,6 @@ else:
         st.stop()
 
     st.write("Data successfully loaded!")
-
     data['% Change'] = data.apply(calc_percent_change, axis=1)
 
     if 'Age at Debut' in data.columns:
@@ -192,7 +170,7 @@ else:
     with st.container():
         col1, col2, col3, col4, col5 = st.columns([1, 1, 1, 1, 1])
 
-        # 1) Competition (Country)
+        # 1) Competition
         with col1:
             if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                 all_comps = sorted(data['Competition (Country)'].dropna().unique())
@@ -222,7 +200,7 @@ else:
                 st.warning("No 'Debut Year' column in data.")
                 selected_years = []
 
-        # 4) Single slider for MAX Age
+        # 4) Single slider for max age
         with col4:
             if 'Age at Debut' in data.columns and not data.empty:
                 min_age_actual = int(data['Age at Debut'].min())
@@ -232,7 +210,7 @@ else:
                                            max_value=max_age_actual,
                                            value=max_age_actual)
             else:
-                st.warning("No 'Age at Debut' column in data or no valid ages.")
+                st.warning("No 'Age at Debut' column or no valid ages.")
                 max_age_filter = 100
 
         # 5) Minimum minutes played
@@ -245,7 +223,7 @@ else:
                 min_minutes = 0
 
     # ----------------------------------------------------------------------------------
-    # RUN & CLEAR BUTTONS
+    # RUN & CLEAR
     # ----------------------------------------------------------------------------------
     with st.container():
         run_col, clear_col = st.columns([0.2, 0.2])
@@ -260,34 +238,33 @@ else:
     if st.session_state['run_clicked']:
         filtered_data = data.copy()
 
-        # Filter: Competition
+        # 1) Competition
         if selected_comp and "All" not in selected_comp:
             selected_ids = [c.replace(" (", "||").replace(")", "") for c in selected_comp]
             filtered_data = filtered_data[filtered_data['CompCountryID'].isin(selected_ids)]
 
-        # Filter: Debut Month
+        # 2) Debut Month
         if selected_months and "All" not in selected_months:
             filtered_data = filtered_data[filtered_data['Debut Month'].isin(selected_months)]
 
-        # Filter: Debut Year
+        # 3) Debut Year
         if selected_years and "All" not in selected_years:
             valid_years = [int(y) for y in selected_years if y.isdigit()]
             filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
-        # Filter: max age
+        # 4) Max Age
         if 'Age at Debut' in filtered_data.columns:
             filtered_data = filtered_data[filtered_data['Age at Debut'] <= max_age_filter]
 
-        # Filter: min minutes
+        # 5) Min minutes
         if 'Minutes Played' in filtered_data.columns:
             filtered_data = filtered_data[filtered_data['Minutes Played'] >= min_minutes]
 
-        # Sort Debut Date descending, then convert for display
+        # Sort by Debut Date desc, then format
         if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
             filtered_data.sort_values('Debut Date', ascending=False, inplace=True)
             filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
-        # Build final DF
         display_columns = [
             "Competition",
             "Player Name",
@@ -312,7 +289,6 @@ else:
         st.title("Debütanten")
         st.write(f"{len(final_df)} Debütanten")
 
-        # Highlight & Format
         styled_table = final_df.style.apply(highlight_mv, axis=None)
 
         money_cols = []
