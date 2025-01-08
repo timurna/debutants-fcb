@@ -180,6 +180,13 @@ else:
     # Create our new column for % Change
     data['% Change'] = data.apply(calc_percent_change, axis=1)
 
+    # --------------------------------------------------
+    # Remove invalid ages (e.g., -1) entirely
+    # --------------------------------------------------
+    if 'Age at Debut' in data.columns:
+        # We'll keep only rows where Age >= 0 (or maybe >= 1 or >= 14, up to your preference)
+        data = data[data['Age at Debut'] >= 0]
+
     # ==================================================================================
     # 8A) FILTERS
     # ==================================================================================
@@ -216,19 +223,23 @@ else:
                 st.warning("No 'Debut Year' column in data.")
                 selected_years = []
 
-        # 4) Age range
+        # 4) SINGLE SLIDER for MAX AGE
         with col4:
-            if 'Age at Debut' in data.columns:
-                min_age = int(data['Age at Debut'].min())
-                max_age = int(data['Age at Debut'].max())
-                age_range = st.slider("Select Age Range", min_age, max_age, (min_age, max_age))
+            if 'Age at Debut' in data.columns and not data.empty:
+                min_age_actual = int(data['Age at Debut'].min())
+                max_age_actual = int(data['Age at Debut'].max())
+
+                max_age_filter = st.slider("Maximum Age at Debut",
+                                           min_value=min_age_actual,
+                                           max_value=max_age_actual,
+                                           value=max_age_actual)
             else:
-                st.warning("No 'Age at Debut' column in data.")
-                age_range = (0, 100)
+                st.warning("No 'Age at Debut' column in data or no valid ages.")
+                max_age_filter = 100
 
         # 5) Minimum minutes played
         with col5:
-            if 'Minutes Played' in data.columns:
+            if 'Minutes Played' in data.columns and not data.empty:
                 max_minutes = int(data['Minutes Played'].max())
                 min_minutes = st.slider("Minimum Minutes Played", 0, max_minutes, 0)
             else:
@@ -246,7 +257,6 @@ else:
 
         # Filter: Competition + Country
         if selected_comp and "All" not in selected_comp:
-            # Convert e.g. "1. Bundesliga (Germany)" -> "1. Bundesliga||Germany"
             selected_ids = [
                 c.replace(" (", "||").replace(")", "")
                 for c in selected_comp
@@ -262,12 +272,9 @@ else:
             valid_years = [int(y) for y in selected_years if y.isdigit()]
             filtered_data = filtered_data[filtered_data['Debut Year'].isin(valid_years)]
 
-        # Filter: Age range
+        # Filter: Maximum Age at Debut
         if 'Age at Debut' in filtered_data.columns:
-            filtered_data = filtered_data[
-                (filtered_data['Age at Debut'] >= age_range[0]) &
-                (filtered_data['Age at Debut'] <= age_range[1])
-            ]
+            filtered_data = filtered_data[filtered_data['Age at Debut'] <= max_age_filter]
 
         # Filter: Minimum minutes played
         if 'Minutes Played' in filtered_data.columns:
@@ -277,9 +284,7 @@ else:
         # SORT BY DEBUT DATE (DESC), THEN FORMAT
         # -----------
         if not filtered_data.empty and 'Debut Date' in filtered_data.columns:
-            # Sort descending by the actual datetime
             filtered_data.sort_values('Debut Date', ascending=False, inplace=True)
-            # Then convert the column to a string for display
             filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
         # ==================================================================================
@@ -305,21 +310,18 @@ else:
             "% Change",  # Our newly created column
         ]
 
-        # Only keep columns that exist
         display_columns = [c for c in display_columns if c in filtered_data.columns]
         final_df = filtered_data[display_columns].reset_index(drop=True)
 
         st.title("Debütanten")
-        st.write(f"{len(final_df)} Debütanten")  # Count how many results
+        st.write(f"{len(final_df)} Debütanten")
 
         # ==================================================================================
         # 8D) STYLING
         # ==================================================================================
-        # 1) We create a Styler object, applying highlight logic
         styled_table = final_df.style.apply(highlight_mv, axis=None)
 
-        # 2) Format money columns
-        #    If you treat them as big integers, do e.g. "€1,000,000"
+        # Format money columns
         money_cols = []
         if "Value at Debut" in final_df.columns:
             money_cols.append("Value at Debut")
@@ -333,7 +335,7 @@ else:
 
         styled_table = styled_table.format(subset=money_cols, formatter=money_format)
 
-        # 3) Format % Change as e.g. +50.0%
+        # Format % Change
         if "% Change" in final_df.columns:
             def pct_format(x):
                 if pd.isna(x):
@@ -341,7 +343,6 @@ else:
                 return f"{x:+.1f}%"
             styled_table = styled_table.format(subset=["% Change"], formatter=pct_format)
 
-        # 4) Show the styled DataFrame
         st.dataframe(styled_table, use_container_width=True)
 
         # ==================================================================================
