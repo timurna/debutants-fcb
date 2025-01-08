@@ -111,10 +111,6 @@ def download_and_load_data(file_url, data_version):
         # Also create a display-friendly column (Competition (Country))
         data['Competition (Country)'] = data['Competition'] + " (" + data['Country'].fillna('') + ")"
 
-        # If "Value at Debut" or "Current Market Value" might be non-numeric, convert:
-        # data['Value at Debut'] = pd.to_numeric(data['Value at Debut'], errors='coerce')
-        # data['Current Market Value'] = pd.to_numeric(data['Current Market Value'], errors='coerce')
-
         return data
     except Exception as e:
         st.error(f"Error reading Excel file: {e}")
@@ -128,22 +124,25 @@ def run_callback():
 
 # ====================================================================================
 # 6) HIGHLIGHT FUNCTION
-#    We'll highlight "Current Market Value" if it's higher than "Value at Debut".
+#    Now with both green and red highlighting logic
 # ====================================================================================
 def highlight_mv(df):
     """
-    If Current Market Value is higher than Value at Debut, highlight that cell in green.
-    Make sure these columns are numeric, otherwise the comparison won't work properly.
+    If Current Market Value is higher than Value at Debut => green.
+    If Current Market Value is lower => red.
     """
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
+
     if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
-        mask = df['Current Market Value'] > df['Value at Debut']
-        styles.loc[mask, 'Current Market Value'] = 'background-color: #c6f6d5'
+        mask_up = df['Current Market Value'] > df['Value at Debut']
+        mask_down = df['Current Market Value'] < df['Value at Debut']
+
+        styles.loc[mask_up, 'Current Market Value'] = 'background-color: #c6f6d5'   # light green
+        styles.loc[mask_down, 'Current Market Value'] = 'background-color: #feb2b2' # light red
     return styles
 
 # ====================================================================================
 # 7) PERCENT CHANGE FUNCTION
-#    We'll keep Value at Debut & Current Market Value numeric, and create a new column "% Change"
 # ====================================================================================
 def calc_percent_change(row):
     """
