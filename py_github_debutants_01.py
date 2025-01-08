@@ -117,10 +117,21 @@ def download_and_load_data(file_url, data_version):
         return None
 
 # ====================================================================================
-# 5) HELPER: RUN CALLBACK
+# 5) CALLBACKS
 # ====================================================================================
 def run_callback():
     st.session_state['run_clicked'] = True
+
+def clear_callback():
+    """
+    Clears all session_state items except for authentication-related ones,
+    so the dashboard reverts to the 'just logged in' state.
+    """
+    keys_to_preserve = {'authenticated', 'login_username', 'login_password'}
+    for key in list(st.session_state.keys()):
+        if key not in keys_to_preserve:
+            del st.session_state[key]
+    st.experimental_rerun()
 
 # ====================================================================================
 # 6) HIGHLIGHT FUNCTION
@@ -180,11 +191,8 @@ else:
     # Create our new column for % Change
     data['% Change'] = data.apply(calc_percent_change, axis=1)
 
-    # --------------------------------------------------
-    # Remove invalid ages (e.g., -1) entirely
-    # --------------------------------------------------
+    # Remove invalid negative ages
     if 'Age at Debut' in data.columns:
-        # We'll keep only rows where Age >= 0 (or maybe >= 1 or >= 14, up to your preference)
         data = data[data['Age at Debut'] >= 0]
 
     # ==================================================================================
@@ -246,8 +254,13 @@ else:
                 st.warning("No 'Minutes Played' column in data.")
                 min_minutes = 0
 
-    # RUN button
-    st.button("Run", on_click=run_callback)
+    # RUN & CLEAR buttons side by side
+    with st.container():
+        run_col, clear_col = st.columns([0.2, 0.2])  # adjust widths as needed
+        with run_col:
+            st.button("Run", on_click=run_callback)
+        with clear_col:
+            st.button("Clear", on_click=clear_callback)
 
     # ==================================================================================
     # 8B) APPLY FILTERS
