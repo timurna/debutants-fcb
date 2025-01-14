@@ -37,7 +37,7 @@ def login():
         username = st.session_state.login_username
         password = st.session_state.login_password
         if authenticate(username, password):
-            st.session_state.authenticated = True
+            st.session_state['authenticated'] = True
             st.success("Login successful!")
         else:
             st.error("Invalid username or password")
@@ -79,9 +79,14 @@ def download_and_load_data(file_url, data_version):
                 'minutes_played': 'Minutes Played',
                 'debut_type': 'Debut Type',
                 'opponent': 'Opponent',
+                'player_url': 'player_url'  # Ensure 'player_url' is included
             },
             inplace=True
         )
+
+        # Standardize 'Debut Month' format to three-letter abbreviations
+        if 'Debut Month' in data.columns:
+            data['Debut Month'] = data['Debut Month'].str.strip().str.title()
 
         data['Debut Date'] = pd.to_datetime(data['Debut Date'], errors='coerce')
         if 'Debut Date' in data.columns:
@@ -123,12 +128,30 @@ def clear_callback():
 # 6) HIGHLIGHT FUNCTION
 # ====================================================================================
 def highlight_mv(df):
+    """
+    Applies conditional styling:
+    - Green background for 'Current Market Value' > 'Value at Debut'
+    - Red background for 'Current Market Value' < 'Value at Debut'
+    - Green background for '% Change' > 0
+    - Red background for '% Change' < 0
+    - No background for '% Change' = 0 or NaN
+    """
     styles = pd.DataFrame('', index=df.index, columns=df.columns)
+    
+    # Style 'Current Market Value'
     if 'Value at Debut' in df.columns and 'Current Market Value' in df.columns:
         mask_up = df['Current Market Value'] > df['Value at Debut']
         mask_down = df['Current Market Value'] < df['Value at Debut']
-        styles.loc[mask_up, 'Current Market Value'] = 'background-color: #c6f6d5'
-        styles.loc[mask_down, 'Current Market Value'] = 'background-color: #feb2b2'
+        styles.loc[mask_up, 'Current Market Value'] = 'background-color: #c6f6d5'   # light green
+        styles.loc[mask_down, 'Current Market Value'] = 'background-color: #feb2b2' # light red
+    
+    # Style '% Change'
+    if '% Change' in df.columns:
+        mask_change_up = df['% Change'] > 0
+        mask_change_down = df['% Change'] < 0
+        styles.loc[mask_change_up, '% Change'] = 'background-color: #c6f6d5'        # light green
+        styles.loc[mask_change_down, '% Change'] = 'background-color: #feb2b2'      # light red
+    
     return styles
 
 # ====================================================================================
@@ -175,7 +198,7 @@ else:
             if 'Competition (Country)' in data.columns and 'CompCountryID' in data.columns:
                 all_comps = sorted(data['Competition (Country)'].dropna().unique())
                 comp_options = ["All"] + all_comps
-                selected_comp = st.multiselect("Select Competition", comp_options, default=[])
+                selected_comp = st.multiselect("Select Competition", comp_options, default=["All"])
             else:
                 st.warning("No Competition/Country columns in data.")
                 selected_comp = []
@@ -183,9 +206,19 @@ else:
         # 2) Debut Month
         with col2:
             if 'Debut Month' in data.columns:
-                all_months = sorted(data['Debut Month'].dropna().unique())
-                month_options = ["All"] + list(all_months)
-                selected_months = st.multiselect("Select Debut Month", month_options, default=[])
+                # Define the chronological order of months using abbreviations
+                months_order = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                               'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+                
+                # Extract unique months from the data and sort them chronologically
+                available_months = data['Debut Month'].dropna().unique()
+                sorted_months = [month for month in months_order if month in available_months]
+                
+                # Create the filter options with "All" as the first option
+                month_options = ["All"] + sorted_months
+                
+                # Multiselect widget for selecting debut months
+                selected_months = st.multiselect("Select Debut Month", month_options, default=["All"])
             else:
                 st.warning("No 'Debut Month' column in data.")
                 selected_months = []
@@ -195,7 +228,7 @@ else:
             if 'Debut Year' in data.columns:
                 all_years = sorted(data['Debut Year'].dropna().unique())
                 year_options = ["All"] + [str(yr) for yr in all_years]
-                selected_years = st.multiselect("Select Debut Year", year_options, default=[])
+                selected_years = st.multiselect("Select Debut Year", year_options, default=["All"])
             else:
                 st.warning("No 'Debut Year' column in data.")
                 selected_years = []
@@ -265,9 +298,34 @@ else:
             filtered_data.sort_values('Debut Date', ascending=False, inplace=True)
             filtered_data['Debut Date'] = filtered_data['Debut Date'].dt.strftime('%d.%m.%Y')
 
+        # Create 'Player Link' column with clickable links
+        def sanitize_url(url):
+            import re
+            # Simple URL validation
+            regex = re.compile(
+                r'^(?:http|ftp)s?://'  # http:// or https://
+                r'(?:\S+(?::\S*)?@)?'  # user:pass@
+                r'(?:(?:[1-9]\d?|1\d\d|2[01]\d|22[0-3])'  # IP
+                r'(?:\.(?:1?\d{1,2}|2[0-4]\d|25[0-5])){2}'
+                r'(?:\.(?:[0-9]{1,3}))|'
+                r'(?:(?:[a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))'  # Domain
+                r'(?::\d{2,5})?'  # Port
+                r'(?:/\S*)?$',
+                re.IGNORECASE
+            )
+            return re.match(regex, url) is not None
+
+        filtered_data['Player'] = filtered_data.apply(
+            lambda row: f'<a href="{row["player_url"]}" target="_blank">{row["Player Name"]}</a>' 
+                        if pd.notna(row['player_url']) and isinstance(row['player_url'], str) and sanitize_url(row['player_url']) 
+                        else row['Player Name'],
+            axis=1
+        )
+
+        # Define the columns to display, replacing 'Player Name' with 'Player Link'
         display_columns = [
             "Competition",
-            "Player Name",
+            "Player",  # Use the new link column
             "Position",
             "Nationality",
             "Debut Club",
@@ -283,14 +341,30 @@ else:
             "Current Market Value",
             "% Change"
         ]
+        # Ensure that all display columns exist in the filtered data
         display_columns = [c for c in display_columns if c in filtered_data.columns]
         final_df = filtered_data[display_columns].reset_index(drop=True)
 
         st.title("Debütanten")
         st.write(f"{len(final_df)} Debütanten")
 
+        # Apply conditional styling
         styled_table = final_df.style.apply(highlight_mv, axis=None)
 
+        # Set font size to 12px and define table layout for even column distribution
+        styled_table = styled_table.set_table_styles(
+            [
+                # Set table width to 100% and layout to fixed for even column distribution
+                {'selector': 'table',
+                 'props': [('width', '100%'), ('table-layout', 'fixed')]},
+                
+                # Set font size and padding for headers and cells
+                {'selector': 'th, td',
+                 'props': [('font-size', '14px'), ('padding', '5px')]}
+            ]
+        )
+
+        # Format money columns
         money_cols = []
         if "Value at Debut" in final_df.columns:
             money_cols.append("Value at Debut")
@@ -304,6 +378,17 @@ else:
 
         styled_table = styled_table.format(subset=money_cols, formatter=money_format)
 
+        # Format integer columns
+        integer_cols = ["Goals For", "Goals Against"]
+
+        def integer_format(x):
+            if pd.isna(x):
+                return "0"
+            return f"{int(x)}"
+
+        styled_table = styled_table.format(subset=integer_cols, formatter=integer_format)
+
+        # Format % Change
         if "% Change" in final_df.columns:
             def pct_format(x):
                 if pd.isna(x):
@@ -311,7 +396,23 @@ else:
                 return f"{x:+.1f}%"
             styled_table = styled_table.format(subset=["% Change"], formatter=pct_format)
 
-        st.dataframe(styled_table, use_container_width=True)
+        # Additional table styling for responsiveness and horizontal scrolling (optional)
+        styled_table = styled_table.set_table_styles(
+            [
+                {'selector': 'table',
+                 'props': [('width', '100%'), ('table-layout', 'fixed'), ('overflow-x', 'auto')]}
+            ],
+            overwrite=False  # Prevent overwriting previous styles
+        )
+
+        # Render the styled table as HTML
+        try:
+            html_table = styled_table.to_html(escape=False)
+        except AttributeError:
+            st.error("The 'to_html()' method is not available in your Pandas version. Please update Pandas to use this feature.")
+            st.stop()
+
+        st.markdown(html_table, unsafe_allow_html=True)
 
         # Download
         if not final_df.empty:
