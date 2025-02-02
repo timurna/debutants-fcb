@@ -173,7 +173,7 @@ else:
     st.image('logo.png', use_container_width=True, width=800)
     st.write("Welcome! You are logged in.")
 
-    file_url = 'https://drive.google.com/uc?id=1tI89qqBHlHzkxrgR1_nnY4MogMcPHi1g'
+    file_url = 'https://drive.google.com/uc?id=17HU35ZZjxheBxsl__ClRbP66qZvm2scx'
     data_version = 'v1'
     data = download_and_load_data(file_url, data_version)
 
